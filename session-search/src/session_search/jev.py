@@ -37,16 +37,16 @@ class Usage:
 class Jev:
     """Holds the HTTP client, concurrency limit, answer cache and running usage for one search."""
 
-    def __init__(self, db: sqlite3.Connection, concurrency: int = 12):
+    def __init__(self, db: sqlite3.Connection, concurrency: int = 12, cache: bool = True):
         key = os.environ.get("TYPESAFE_API_KEY")
         assert key, "TYPESAFE_API_KEY not set"
         self.http = httpx.AsyncClient(headers={"Authorization": f"Bearer {key}"}, timeout=60)
-        self.sem, self.db, self.usage = asyncio.Semaphore(concurrency), db, Usage()
+        self.sem, self.db, self.usage, self.cache = asyncio.Semaphore(concurrency), db, Usage(), cache
 
     async def ask(self, state: dict, questions: dict) -> dict:
         body = orjson.dumps({"model": MODEL, "state": state, "questions": questions}, option=orjson.OPT_SORT_KEYS)
         key = hashlib.sha256(body).hexdigest()
-        if row := self.db.execute("select answers from jev_cache where key=?", (key,)).fetchone():
+        if self.cache and (row := self.db.execute("select answers from jev_cache where key=?", (key,)).fetchone()):
             self.usage.cached += 1
             return orjson.loads(row[0])
         async with self.sem:

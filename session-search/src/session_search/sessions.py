@@ -7,6 +7,7 @@ import orjson
 CLAUDE_ROOT, CODEX_ROOT = Path.home() / ".claude/projects", Path.home() / ".codex/sessions"
 CODEX_INDEX = Path.home() / ".codex/session_index.jsonl"
 SCHEMA_VERSION = 2
+TURN_CHARS, WINDOW, STRIDE, MAX_WINDOWS = 6000, 4500, 4000, 12  # long turns are split into overlapping windows
 
 _REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
 _CMD = re.compile(r"<command-name>(.*?)</command-name>.*?(?:<command-args>(.*?)</command-args>)?", re.S)
@@ -97,6 +98,15 @@ def session_files() -> list[tuple[str, Path]]:
     return [("claude", p) for p in CLAUDE_ROOT.glob("*/*.jsonl")] + [("codex", p) for p in CODEX_ROOT.glob("*/*/*/*.jsonl")]
 
 
+def windows(text: str) -> list[str]:
+    """A turn as the units Jev judges: whole if short, else user head + overlapping slices of the reply."""
+    if len(text) <= TURN_CHARS: return [text]
+    user, sep, reply = text.partition("\nASSISTANT: ")
+    head, starts = user[:800], range(0, max(1, len(reply) - WINDOW + STRIDE), STRIDE)
+    parts = [reply[i:i + WINDOW] for i in starts][:MAX_WINDOWS]
+    return [f"{head}\nASSISTANT (part {k + 1}/{len(parts)}): {w}" for k, w in enumerate(parts)]
+
+
 def turn_text(user: str, assistant: str) -> str:
     return f"USER: {user}\nASSISTANT: {assistant}" if user else f"ASSISTANT: {assistant}"
 
@@ -122,6 +132,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
         create virtual table if not exists turns_fts using fts5(text, session_id unindexed, idx unindexed);
         create table if not exists jev_cache(key text primary key, answers blob);
         create table if not exists searches(ts real, query text, filters text, results blob);
+        create table if not exists emb(session_id text primary key, model text, mtime real, keys blob, vecs blob);
     """)
     if db.execute("select v from meta where k='schema'").fetchone() != (str(SCHEMA_VERSION),):
         db.executescript("delete from sessions; delete from turns; delete from turns_fts;")
@@ -147,7 +158,7 @@ def update_index(db: sqlite3.Connection) -> tuple[int, int]:
 
 
 def _delete(db: sqlite3.Connection, sid: str) -> None:
-    for t in ("turns", "turns_fts"): db.execute(f"delete from {t} where session_id=?", (sid,))
+    for t in ("turns", "turns_fts", "emb"): db.execute(f"delete from {t} where session_id=?", (sid,))
     db.execute("delete from sessions where id=?", (sid,))
 
 

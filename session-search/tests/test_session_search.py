@@ -1,6 +1,9 @@
 import orjson
 from session_search import sessions
-from session_search.cli import _windows, _fts_query, TURN_CHARS, MAX_WINDOWS
+from session_search.sessions import windows, TURN_CHARS, MAX_WINDOWS
+from session_search.search import terms
+from session_search.cli import _snippet, _fit
+from session_search.embed import passages, PASSAGE
 from session_search.jev import redact
 
 
@@ -43,9 +46,9 @@ def test_card_drops_bare_commands():
 
 
 def test_windows_cover_long_replies():
-    assert _windows("USER: hi\nASSISTANT: short") == ["USER: hi\nASSISTANT: short"]
+    assert windows("USER: hi\nASSISTANT: short") == ["USER: hi\nASSISTANT: short"]
     reply = "".join(f"{i:05d} " for i in range(4000))  # 24k chars
-    ws = _windows(f"USER: q\nASSISTANT: {reply}")
+    ws = windows(f"USER: q\nASSISTANT: {reply}")
     assert 1 < len(ws) <= MAX_WINDOWS and all(w.startswith("USER: q\nASSISTANT (part ") for w in ws)
     assert "03999" in ws[-1], "last window must reach the end of the reply"
     assert all(len(w) <= TURN_CHARS for w in ws)
@@ -60,17 +63,37 @@ def test_redact():
     assert redact("plain prose about tokens and passwords") == "plain prose about tokens and passwords"
 
 
-def test_fts_query_drops_stopwords():
-    assert _fts_query("where did we decide the cache backend") == '"decide" OR "cache" OR "backend"'
+def test_terms_drop_stopwords():
+    assert terms("where did we decide the cache backend") == ["decide", "cache", "backend"]
+
+
+def test_passages_cover_window():
+    text = "x" * 4500
+    ps = passages(text)
+    assert ps[0][0] == 0 and ps[-1][0] + len(ps[-1][1]) == len(text) and all(len(c) <= PASSAGE for _, c in ps)
+    assert passages("short") == [(0, "short")]
+
+
+def test_snippet_centres_on_term_in_best_passage():
+    window = "USER: q\nASSISTANT: " + "filler " * 400 + "the cache backend is sqlite now" + " tail" * 50
+    snip = _snippet(window, window.index("filler " * 10, 2000), ["backend"], 80)
+    assert "backend" in snip and snip.startswith("…")
+    assert not _snippet("USER: q\nASSISTANT: answer", 0, [], 80).startswith("USER")
+
+
+def test_fit_keeps_best_session():
+    out = [{"id": str(i), "x": "y" * 400} for i in range(10)]
+    assert len(_fit(out, 300)) < 10 and _fit(out, 1)[0]["id"] == "0" and _fit(out, None) == out
 
 
 def test_exact_repeat_reuses_locally(tmp_path, monkeypatch):
     import asyncio, time, types
-    from session_search import cli
+    from session_search import search
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)  # any Jev call would fail the assert in Jev()
     db = sessions.connect(tmp_path / "i.db")
-    args = types.SimpleNamespace(query="Cache  Backend choice", source=None, since=None, cwd=None, depth=16, excerpts=2, verbose=False)
-    db.execute("insert into searches values(?,?,?,?)", (time.time(), "cache backend choice", cli._filters(args), orjson.dumps([{"id": "x"}])))
-    assert asyncio.run(cli._equivalent(db, args))[1:2] == (1.0,)
+    args = types.SimpleNamespace(query="Cache  Backend choice", source=None, since=None, cwd=None, exclude=None, depth=12,
+                                 windows=48, excerpts=2, exhaustive=False, verbose=False)
+    db.execute("insert into searches values(?,?,?,?)", (time.time(), "cache backend choice", search.filters_key(args), orjson.dumps([{"id": "x"}])))
+    assert asyncio.run(search.equivalent(db, args))[1:2] == (1.0,)
     args.depth = 32  # different filters → nothing eligible, still no network
-    assert asyncio.run(cli._equivalent(db, args)) is None
+    assert asyncio.run(search.equivalent(db, args)) is None
