@@ -1,5 +1,55 @@
 # Validation: 2026-10-04
 
+## Version 0.2 follow-up
+
+32 automated tests passed after adding retrieval source classification, distinct
+candidate selection, project routing, transcript capture and native lifecycle hooks.
+Tests cover approval-review and retrieval echoes, preservation of changed dated
+facts and exact zoom, invalidation of stale tree caches, bounded paid ranking,
+partial transcript lines, session/project mismatch, hidden-reasoning exclusion,
+retracted notes on restoration, additive/idempotent hook installation and unchanged
+hook trust records. Ruff F checks passed.
+
+After the user completed normal Codex hook trust review, a live native test passed:
+an authenticated disposable Codex thread first answered READY; a random marker was
+then written only to its isolated external archive. Codex performed native
+compaction, the compact SessionStart hook prepared restored memory, and the next
+model turn returned that unseen marker exactly. No manual `thread/inject_items`
+call was used. The test archive/workspace was cleaned up afterward. This verifies
+native hook execution and model receipt on an independently owned Codex server;
+it does not claim this existing desktop chat was compacted during the test.
+
+Native context targets are configured at 160k automatic compaction / 200k context.
+Both new hooks and all five existing hooks were verified through `hooks/list`.
+The MCP registration uses a separate versioned Windows runtime because upgrading
+the active uv environment in place fails on locked executable files. Existing
+clients need an MCP reload to use the updated retrieval process. New terminal
+sessions resolve the versioned command through the user PATH.
+
+The final installed runtime also passed a fresh native MCP probe: Codex discovered
+all four tools, called status and search, and recovered the original spending-cap
+message at event 216. This probe used local ranking. Its audit reads raw public
+events, because successful retrieval results are deliberately absent from the
+filtered source view. Both hook approvals remained trusted after installation.
+
+On the previously failing real question about the original provider/spending cap,
+the original user message (event 216) ranked first. The first v0.2 probe used three
+Jev requests and 5,739 reported input tokens, compared with six and 10,621 in the
+preceding v0.1 test. This is one selected regression, not an independent quality eval.
+The snapshot contained 226 approval-review transcript replays. These were copies
+of earlier conversation presented to approval reviewers, not fresh human messages.
+One additional escaped retrieval format was identified and added to the filter
+after this probe. Raw records remain intact.
+
+The Windows desktop has no default control-socket directory. Native recovery now
+uses documented `PreCompact` and `SessionStart` hooks. Direct hook/unit checks
+verify prepared bounded context; the live receipt test above additionally verifies
+normal trust review and native compaction. Do not equate a prepared packet
+with model receipt. Existing native summaries/other hook output remain additional.
+
+The following sections record the original 0.1 validation rather than claiming
+all live probes were rerun after this follow-up.
+
 Windows, Python 3.13.9 through uv, tiktoken 0.14.0, authenticated Codex
 `gpt-5.6-luna`. Global model/permission settings were preserved. Codex work is the
 current supported scope; the user explicitly deferred Claude.

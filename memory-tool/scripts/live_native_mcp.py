@@ -131,8 +131,12 @@ with tempfile.TemporaryDirectory(prefix="memory-tool-mcp-probe-") as folder:
             )
             calls = [
                 json.loads(r["text"])
-                for r in store.events("probe")
-                if r["role"] == "tool_result"
+                # Retrieval echoes are excluded from the source view, but tool-use
+                # verification must inspect the immutable public audit records.
+                for r in store.db.execute(
+                    "SELECT text FROM events WHERE chat=? AND role='tool_result' ORDER BY id",
+                    ("probe",),
+                )
             ]
             mcp = [r for r in calls if r.get("type") == "mcpToolCall"]
             assert any("memory_status" in r.get("tool", "") for r in mcp), mcp

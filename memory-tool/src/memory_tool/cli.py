@@ -15,6 +15,14 @@ def parser():
         "--db", help="SQLite path; otherwise MEMORY_TOOL_HOME/memory.sqlite"
     )
     commands = root.add_subparsers(dest="command", required=True)
+    hook = commands.add_parser(
+        "hook", help="Native Codex lifecycle hook; reads its event from stdin"
+    )
+    hook.add_argument("--budget", type=int, default=64000)
+    hook.add_argument("--recent", type=int, default=8000)
+    hook.add_argument(
+        "--connectome", help="Optionally bootstrap existing local Connectome history"
+    )
     for name in (
         "init",
         "import-connectome",
@@ -105,7 +113,25 @@ def main():
     archive = Archive(args.db)
     gateway = None
     try:
-        if args.command == "init":
+        if args.command == "hook":
+            from .hooks import hook_response
+
+            try:
+                event = json.load(sys.stdin)
+                result = hook_response(
+                    archive,
+                    event,
+                    budget=args.budget,
+                    recent=args.recent,
+                    connectome=args.connectome,
+                )
+            except Exception as error:
+                result = {
+                    "continue": True,
+                    "systemMessage": f"memory-tool: invalid hook input ({type(error).__name__})",
+                }
+            print(json.dumps(result, ensure_ascii=True))
+        elif args.command == "init":
             archive.register(args.chat, args.project)
             emit(archive.stats(args.chat))
         elif args.command == "import-connectome":

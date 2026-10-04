@@ -27,6 +27,20 @@ metadata, and `/reset` rebuilds the working context on the next message.
 The installed command is a self-contained snapshot, so switching repository branches
 does not remove the running memory server. `uv run memory-tool` remains useful for development.
 
+On Windows, do not force-reinstall a uv tool environment while its MCP process is
+running: its Python executables are locked. For upgrades, build a wheel and install
+it in a separate versioned runtime before changing the MCP command:
+
+```powershell
+uv build --wheel
+$env:UV_TOOL_DIR = "$env:USERPROFILE/.local/share/memory-tool/runtimes/0.2.0/tools"
+$env:UV_TOOL_BIN_DIR = "$env:USERPROFILE/.local/share/memory-tool/runtimes/0.2.0/bin"
+uv tool install --from ./dist/memory_tool-0.2.0-py3-none-any.whl memory-tool
+```
+
+Use that version's absolute launcher in MCP/hook configuration. Preserve the old
+runtime until its clients exit. The SQLite archive is outside these runtime folders.
+
 Default Codex policy: reuse context, reset before a turn near **160k tokens**, and
 request a **200k context window**, with native automatic compaction at the reset
 threshold. Rebuilding injects at most **64k `o200k_base` tokens**, including metadata,
@@ -58,6 +72,10 @@ memory-tool import-connectome --chat my-master --project C:/path/to/project
 codex mcp add memory_tool -- memory-tool serve --chat my-master --connectome C:/Users/you/.codex/connectome/history.sqlite
 ```
 
+Pass the current absolute `project` path to each memory tool. The server routes to
+that project's logical chat; `bff-master` remains the existing BFF scope. An omitted
+project uses the configured default. Different projects cannot zoom each other's events.
+
 Restart/reconnect MCP servers if a new registration is not visible in the existing
 client. Tools: `memory_status`, `memory_search`, `memory_zoom`, `memory_checkpoint`.
 On Windows, an absolute launcher path from `uv tool dir --bin` avoids stale app PATH state.
@@ -77,7 +95,43 @@ the tested machine: **desktop remote reset is not verified**. Compaction/injecti
 passed on a disposable independently owned server. Gateway rollover and `/reset`
 start a new backend context without deleting the archive or editing desktop rollouts.
 
+### Automatic native recovery
+
+The supported desktop route uses Codex lifecycle hooks, without the control socket:
+
+```powershell
+uv run python scripts/install_native_hooks.py --executable C:/Users/you/.local/bin/memory-tool.exe --connectome C:/Users/you/.codex/connectome/history.sqlite --reset-at 160000 --context-limit 200000
+```
+
+This adds two reviewable definitions to `~/.codex/hooks.json`, backs up changed
+files, and preserves existing hooks and trust records. The optional context flags
+set native targets in `config.toml`; omit them to retain current context settings.
+Review and trust the two new memory-tool hooks through Codex `/hooks`. No trust
+bypass is used. Restart/reload the client after changing its installed server.
+
+`PreCompact` captures public transcript records and saves a checkpoint;
+`SessionStart` after compact/resume/clear/startup restores a fresh project-scoped
+packet. Retracted notes are re-evaluated. Capture verifies the transcript's session
+and project, handles partial lines without advancing past them, and never ingests
+hidden reasoning. Hooks run locally without models or network calls. Capture is
+bounded to 64 MiB per invocation; incomplete capture is explicitly reported.
+Existing Connectome import can bootstrap older history. Errors preserve the native
+session and report that recovery failed rather than claiming success.
+
+`memory_status.native_recovery` records **prepared** output, its checkpoint and
+capture backlog; it does not prove model receipt. The packet including its envelope
+is bounded by 64k o200k tokens and a conservative UTF-8/4 estimate for Codex's hook
+output threshold. Native summaries and other installed hook output are additional
+context, so this does not replace native history with an exact 64k allocation.
+
 ## Retrieval and storage
+
+Approval-review transcript copies and replayed search/zoom results are excluded
+from candidate ranking and packed history. They remain immutable and accessible by
+event ID. Derived metadata is rebuilt on upgrade; no source records are deleted.
+Overlapping windows are deduplicated before paid ranking, preserving separate
+dated statements and changed decisions. Lexical search ignores common question
+words and overfetches source windows before selecting distinct events.
 
 Older history uses cached binary-tree literal excerpts, not generative summaries.
 They may omit important facts. Search returns overlapping original windows; zoom
@@ -92,9 +146,11 @@ uv run memory-tool zoom --chat my-master 42 --offset 0
 uv run memory-tool pack --chat my-master --output C:/private/history.txt
 ```
 
-`--jev` optionally ranks up to 24 redacted windows directly with TypeSafe. Credentials
+`--jev` optionally ranks the first 12 distinct redacted source candidates directly
+with TypeSafe, from a local shortlist of up to 24. Unranked candidates remain
+available after ranked results. Credentials
 come from `TYPESAFE_API_KEY` or its existing Windows user environment value. At most
-six requests per retrieval, four-second HTTP timeouts, 24-hour exact-input cache,
+three requests per retrieval, four-second HTTP timeouts, 24-hour exact-input cache,
 no automatic retries, local fallback. Redaction is best-effort; enabling Jev exports
 candidate conversation excerpts. Plain retrieval and packing stay local.
 
@@ -117,8 +173,11 @@ uv run pytest -q
 uv run ruff check src tests scripts --select F
 uv run python scripts/live_codex.py
 uv run python scripts/cache_compare.py
+uv run python scripts/live_native_hooks.py
 ```
 
 Live probes consume the installed Codex account's usage. The cache comparison uses
 matched prompts/seeds, but one sequential trial per policy is only a smoke comparison.
+The native hook probe requires the two memory-tool hooks to be trusted normally;
+otherwise it exits with `needs_hook_trust` and makes no model calls.
 See [VALIDATION.md](VALIDATION.md) for observations and limits.
