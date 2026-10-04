@@ -40,7 +40,9 @@ def codex_executable() -> str:
 
 
 class CodexRpc:
-    def __init__(self, proxy=False, timeout=120, executable=None, on_message=None):
+    def __init__(
+        self, proxy=False, timeout=120, executable=None, on_message=None, env=None
+    ):
         command = [executable or codex_executable(), "app-server"]
         command += ["proxy"] if proxy else ["--stdio"]
         self.process = subprocess.Popen(
@@ -51,6 +53,7 @@ class CodexRpc:
             text=True,
             encoding="utf-8",
             bufsize=1,
+            env=env,
         )
         self.queue = queue.Queue()
         self.pending = collections.deque()
@@ -58,8 +61,10 @@ class CodexRpc:
         self.serial = 0
         self.timeout = timeout
         self.on_message = on_message
-        threading.Thread(target=self._stdout, daemon=True).start()
-        threading.Thread(target=self._stderr, daemon=True).start()
+        self.reader = threading.Thread(target=self._stdout, daemon=True)
+        self.error_reader = threading.Thread(target=self._stderr, daemon=True)
+        self.reader.start()
+        self.error_reader.start()
         try:
             self.request(
                 "initialize",
@@ -97,6 +102,14 @@ class CodexRpc:
         except queue.Empty as error:
             raise TimeoutError("App-server response timed out") from error
         if isinstance(message, BaseException):
+            if str(message) == "App-server connection closed":
+                self.error_reader.join(timeout=0.2)
+                from .retrieval import redact
+
+                detail = redact("".join(self.stderr).strip())[-1500:]
+                raise RpcError(
+                    "App-server connection closed" + (f": {detail}" if detail else "")
+                )
             raise message
         if self.on_message:
             self.on_message(message)
@@ -159,6 +172,8 @@ class CodexRpc:
         for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
             if stream:
                 stream.close()
+        self.reader.join(timeout=0.2)
+        self.error_reader.join(timeout=0.2)
 
     def __enter__(self):
         return self

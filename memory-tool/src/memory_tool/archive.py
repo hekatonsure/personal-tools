@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib, json, os, sqlite3, time, uuid
 from pathlib import Path
+from .evidence import query_words, source_kind
 
 
 def canonical(project: str) -> str:
@@ -37,7 +38,20 @@ class Archive:
         CREATE TABLE IF NOT EXISTS checkpoints(id TEXT PRIMARY KEY,chat TEXT NOT NULL,created REAL NOT NULL,watermark INTEGER NOT NULL,sha TEXT NOT NULL,packet TEXT NOT NULL,tokens INTEGER NOT NULL,encoding TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY,chat TEXT NOT NULL,thread TEXT,state TEXT NOT NULL,detail TEXT NOT NULL,updated REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS ranking_cache(key TEXT PRIMARY KEY,value TEXT NOT NULL,created REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS evidence_catalog(event INTEGER PRIMARY KEY,kind TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS evidence_kind ON evidence_catalog(kind,event);
         """)
+        # Derived metadata can evolve without modifying immutable public events.
+        with self.db:
+            missing = self.db.execute(
+                "SELECT e.id,e.role,e.text FROM events e LEFT JOIN evidence_catalog c ON c.event=e.id WHERE c.event IS NULL"
+            ).fetchall()
+            self.db.executemany(
+                "INSERT OR IGNORE INTO evidence_catalog VALUES(?,?)",
+                [(r["id"], source_kind(r["role"], r["text"])) for r in missing],
+            )
+            if missing:
+                self.db.execute("DELETE FROM nodes")
 
     def close(self):
         self.db.close()
@@ -62,6 +76,19 @@ class Archive:
         if not row:
             raise ValueError("Unknown chat")
         return row[0]
+
+    def chat_for_project(self, project: str):
+        project = canonical(project)
+        rows = self.db.execute(
+            "SELECT id FROM chats WHERE project=? ORDER BY created,id", (project,)
+        ).fetchall()
+        if len(rows) == 1:
+            return rows[0][0]
+        # Multiple explicitly created chats remain separate. A deterministic project
+        # chat gives native hooks/MCP the same scope without merging their archives.
+        chat = "project-" + digest(project)[:16]
+        self.register(chat, project)
+        return chat
 
     def append(
         self,
@@ -89,6 +116,10 @@ class Archive:
                 (chat, source, ts, role, text, raw),
             )
             event = row.lastrowid
+            self.db.execute(
+                "INSERT INTO evidence_catalog VALUES(?,?)",
+                (event, source_kind(role, text)),
+            )
             for start in [] if role == "generated_memory" else range(0, len(text), 768):
                 self.db.execute(
                     "INSERT INTO passages VALUES(?,?,?,?)",
@@ -102,7 +133,7 @@ class Archive:
         return [
             dict(r)
             for r in self.db.execute(
-                "SELECT * FROM events WHERE chat=? AND role!='generated_memory' ORDER BY id",
+                "SELECT e.* FROM events e JOIN evidence_catalog c ON c.event=e.id WHERE chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo') ORDER BY e.id",
                 (chat,),
             )
         ]
@@ -111,7 +142,7 @@ class Archive:
         return [
             dict(r)
             for r in self.db.execute(
-                "SELECT id,role,ts,substr(text,1,480) AS preview FROM events WHERE chat=? AND role!='generated_memory' ORDER BY id",
+                "SELECT id,role,ts,substr(text,1,480) AS preview FROM events e JOIN evidence_catalog c ON c.event=e.id WHERE chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo') ORDER BY id",
                 (chat,),
             )
         ]
@@ -175,24 +206,35 @@ class Archive:
         }
 
     def search(self, chat: str, query: str, limit: int = 24):
-        import re
-
         self.project(chat)
         if not query.strip() or len(query) > 2000:
             raise ValueError("Search query must contain 1..2000 characters")
         if not 1 <= limit <= 24:
             raise ValueError("Search limit must be 1..24")
-        words = list(dict.fromkeys(re.findall(r"\w+", query, flags=re.UNICODE)))[:16]
+        words = query_words(query)
         if not words:
             return []
         match = " OR ".join('"' + w.replace('"', '""') + '"' for w in words)
-        return [
+        rows = [
             dict(r)
             for r in self.db.execute(
-                "SELECT p.*,e.role,e.ts,bm25(passages) AS rank FROM passages p JOIN events e ON e.id=p.event WHERE passages MATCH ? AND p.chat=? ORDER BY rank LIMIT ?",
-                (match, chat, limit),
+                "SELECT p.*,e.role,e.ts,c.kind,bm25(passages) AS rank FROM passages p JOIN events e ON e.id=p.event JOIN evidence_catalog c ON c.event=e.id WHERE passages MATCH ? AND p.chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo') ORDER BY rank LIMIT ?",
+                (match, chat, limit * 12),
             )
         ]
+        # Dedupe BEFORE paid ranking. Repeated words/overlapping windows from one
+        # event must not crowd other source events out of the shortlist.
+        selected, used, copies = [], set(), set()
+        for row in rows:
+            key = (row["role"], row["ts"], row["text"].strip())
+            if row["event"] in used or key in copies:
+                continue
+            selected.append(row)
+            used.add(row["event"])
+            copies.add(key)
+            if len(selected) == limit:
+                break
+        return selected
 
     def import_connectome(
         self, chat: str, path: str | Path, project: str, session: str | None = None
@@ -203,7 +245,10 @@ class Archive:
             raise FileNotFoundError(path)
         connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
         connection.row_factory = sqlite3.Row
-        before = len(self.events(chat))
+        before = self.db.execute(
+            "SELECT count(*) FROM events WHERE chat=? AND role!='generated_memory'",
+            (chat,),
+        ).fetchone()[0]
         provenance = 0
         try:
             connection.execute("BEGIN")
@@ -253,7 +298,11 @@ class Archive:
                             (chat, record["id"], line),
                         )
         return {
-            "new_events": len(self.events(chat)) - before,
+            "new_events": self.db.execute(
+                "SELECT count(*) FROM events WHERE chat=? AND role!='generated_memory'",
+                (chat,),
+            ).fetchone()[0]
+            - before,
             "new_source_occurrences": provenance,
         }
 
