@@ -1,0 +1,166 @@
+{
+  "version": "0.2.0",
+  "budget": 12000,
+  "protocol_sha256": "68cbace5f61077a49f9073d29b308449644f0d5f234e0763812d5fcbbe27af8f",
+  "corpus_sha256": "f6b62a01fd60a05a9ccb17c3a986ecd60d2ebcb03a52c29c7c28bae5622a194d",
+  "packet_tokens": 11952,
+  "packet_build_ms": 227.27,
+  "source_candidate_recall": {
+    "restart": true,
+    "threshold": true,
+    "artifact": true,
+    "original": true,
+    "current_cap": true,
+    "tail": true,
+    "pending": true,
+    "stable_preference": true
+  },
+  "retrieval_calls": [
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "automatic compaction threshold user chose"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "verified completed recovery report filename"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "later corrected cloud spending cap"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "yesterday running-status note process running"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "unresolved notes listener port confirmed"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "TAIL_PROOF archived long diagnostic output"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "unrelated project's secret label"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "unfinished memory task user asked to continue"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "dependency runner user require"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "corrected cloud spending cap"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "secret label unrelated project"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "TAIL_PROOF value"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "listener port unresolved 8000 8001"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "process running status yesterday"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "cloud spending cap $"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "secret"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "TAIL_PROOF"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "port 8000"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "running now"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "cloud"
+      }
+    }
+  ],
+  "answer": "{\"restart\":\"NO\",\"threshold\":\"160000\",\"artifact\":\"recovery-final.json\",\"original\":\"5\",\"current_cap\":\"UNKNOWN\",\"stale_process\":\"UNKNOWN\",\"conflict\":\"UNRESOLVED\",\"tail\":\"UNKNOWN\",\"other_project\":\"UNKNOWN\",\"pending\":\"Continue duplicate suppression for retrieval\",\"permission\":\"NO\",\"stable_preference\":\"uv\"}",
+  "case_correct": {
+    "restart": false,
+    "threshold": true,
+    "artifact": true,
+    "original": true,
+    "current_cap": false,
+    "stale_process": true,
+    "conflict": true,
+    "tail": false,
+    "other_project": true,
+    "pending": false,
+    "permission": true,
+    "stable_preference": true
+  },
+  "model": "gpt-5.6-luna",
+  "model_wall_seconds": 12.655,
+  "usage": {
+    "totalTokens": 144240,
+    "inputTokens": 143665,
+    "cachedInputTokens": 109568,
+    "cacheWriteInputTokens": 0,
+    "outputTokens": 575,
+    "reasoningOutputTokens": 189
+  },
+  "exact_answer_accuracy": 0.6666666666666666
+}

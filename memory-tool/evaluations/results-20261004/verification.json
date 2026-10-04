@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-04",
+  "final_source_sha256": "e97dbbe1e898586504a47160847e205eff33972505fede8a958b7319e8d74485",
+  "recorded_release_source_sha256": "519e59279f8f94804c5e6b46ea314a4bb9eb92ad42ef861e612a44af5b9f1de6",
+  "packet_checks": [
+    {
+      "budget": 12000,
+      "packet_tokens": 11332,
+      "same_utf8_packet": true,
+      "packet_sha256": "b3630f66325a11171f95082722183b3a33f7b56bfcf1d47f53906b004b463caa",
+      "raw_events_unchanged": true
+    },
+    {
+      "budget": 24000,
+      "packet_tokens": 14722,
+      "same_utf8_packet": true,
+      "packet_sha256": "359253395a972d7974bb14361ce4737b518b81893ed7f7010b5e0578bc1fb1af",
+      "raw_events_unchanged": true
+    },
+    {
+      "budget": 64000,
+      "packet_tokens": 14722,
+      "same_utf8_packet": true,
+      "packet_sha256": "b64d6b815e550a795d5b1ec3aa2c424e835baf685c0eb30bff67bc46396a2d75",
+      "raw_events_unchanged": true
+    }
+  ],
+  "automated_tests_passed": 48,
+  "ruff_passed": true,
+  "source_hash_method": "SHA256 of sorted relative .py paths, NUL and file bytes under src; paths use Windows separators",
+  "runtime_revision": "0.3.0-r4",
+  "changes_after_live_budget_trials": [
+    "Preserve indentation and literal backslashes in document grouping",
+    "Keep explicitly durable preferences despite operational-status vocabulary, except explicit expiry",
+    "Accept note references in CLI zoom",
+    "Accurately describe source-role presentation weights",
+    "Remove unused selection code; no behavior change",
+    "Keep exit status, errors and other payload metadata distinct when grouping repeated text"
+  ],
+  "live_native_validation": "See VALIDATION.md; no model rerun of byte-identical budget packet inputs.",
+  "installed_python_sources_match": true
+}

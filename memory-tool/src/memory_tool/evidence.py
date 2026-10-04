@@ -1,6 +1,9 @@
 """Classify archive packaging, never truth or authorization. Raw records stay intact."""
 
+import json
 import re
+
+CATALOG_VERSION = 3
 
 
 STOP_WORDS = set(
@@ -21,6 +24,30 @@ def source_kind(role, text):
     ):
         return "generated"
     head = text[:2000]
+    if role == "developer" and any(
+        marker in head
+        for marker in (
+            "<app-context>",
+            "<permissions instructions>",
+            "<skills_instructions>",
+            "<image_resize_notice>",
+            "# Tools",
+            "You are Codex,",
+        )
+    ):
+        return "scaffolding"
+    if role == "assistant":
+        try:
+            value = json.loads(text)
+        except ValueError:
+            value = None
+        if isinstance(value, dict) and set(value) == {
+            "risk_level",
+            "user_authorization",
+            "outcome",
+            "rationale",
+        }:
+            return "review_metadata"
     if (
         head.startswith("The following is the Codex agent history")
         or len(re.findall(r"(?m)^\[\d+\] (?:user|assistant|tool)", text)) >= 3
@@ -42,4 +69,10 @@ def source_kind(role, text):
     return "tool_call" if role == "tool_call" else "source"
 
 
-ECHO_KINDS = {"generated", "transcript_replay", "retrieval_echo"}
+ECHO_KINDS = {
+    "generated",
+    "transcript_replay",
+    "retrieval_echo",
+    "scaffolding",
+    "review_metadata",
+}

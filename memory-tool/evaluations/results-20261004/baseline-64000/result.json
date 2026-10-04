@@ -1,0 +1,106 @@
+{
+  "version": "0.2.0",
+  "budget": 64000,
+  "protocol_sha256": "68cbace5f61077a49f9073d29b308449644f0d5f234e0763812d5fcbbe27af8f",
+  "corpus_sha256": "f6b62a01fd60a05a9ccb17c3a986ecd60d2ebcb03a52c29c7c28bae5622a194d",
+  "packet_tokens": 30369,
+  "packet_build_ms": 363.33,
+  "source_candidate_recall": {
+    "restart": true,
+    "threshold": true,
+    "artifact": true,
+    "original": true,
+    "current_cap": true,
+    "tail": true,
+    "pending": true,
+    "stable_preference": true
+  },
+  "retrieval_calls": [
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "automatic compaction threshold corrected cloud spending cap running-status note listener port TAIL_PROOF unrelated project's secret label unfinished memory task dependency runner"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "corrected cloud spending cap"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "automatic compaction threshold"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "TAIL_PROOF"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "unrelated project secret label"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "unfinished memory task continue"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "dependency runner require"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "yesterday running status definitely running process"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "listener port unresolved notes disagree"
+      }
+    },
+    {
+      "name": "memory_search",
+      "arguments": {
+        "query": "secret label unrelated project"
+      }
+    }
+  ],
+  "answer": "{\"restart\":\"VERIFIED\",\"threshold\":\"160000\",\"artifact\":\"recovery-final.json\",\"original\":\"5\",\"current_cap\":\"8\",\"stale_process\":\"UNKNOWN\",\"conflict\":\"UNRESOLVED\",\"tail\":\"plum-9371\",\"other_project\":\"UNKNOWN\",\"pending\":\"Continue duplicate suppression for retrieval\",\"permission\":\"NO\",\"stable_preference\":\"uv\"}",
+  "case_correct": {
+    "restart": true,
+    "threshold": true,
+    "artifact": true,
+    "original": true,
+    "current_cap": true,
+    "stale_process": true,
+    "conflict": true,
+    "tail": true,
+    "other_project": true,
+    "pending": false,
+    "permission": true,
+    "stable_preference": true
+  },
+  "model": "gpt-5.6-luna",
+  "model_wall_seconds": 9.581,
+  "usage": {
+    "totalTokens": 123258,
+    "inputTokens": 122816,
+    "cachedInputTokens": 78336,
+    "cacheWriteInputTokens": 0,
+    "outputTokens": 442,
+    "reasoningOutputTokens": 170
+  },
+  "exact_answer_accuracy": 0.9166666666666666
+}

@@ -18,7 +18,7 @@ def parser():
     hook = commands.add_parser(
         "hook", help="Native Codex lifecycle hook; reads its event from stdin"
     )
-    hook.add_argument("--budget", type=int, default=64000)
+    hook.add_argument("--budget", type=int, default=24000)
     hook.add_argument("--recent", type=int, default=8000)
     hook.add_argument(
         "--connectome", help="Optionally bootstrap existing local Connectome history"
@@ -45,9 +45,15 @@ def parser():
             )
             command.add_argument("--session", help="Restrict to one native session")
         if name in {"pack", "chat", "reset-codex"}:
-            command.add_argument("--budget", type=int, default=64000)
+            command.add_argument("--budget", type=int, default=24000)
             command.add_argument("--recent", type=int, default=8000)
         if name == "pack":
+            command.add_argument(
+                "--session", help="Restore only this native conversation"
+            )
+            command.add_argument(
+                "--focus", help="Optional topic override for memory selection"
+            )
             command.add_argument(
                 "--output",
                 help="Write full history packet to a local file; stdout is metadata",
@@ -61,7 +67,7 @@ def parser():
                 help="Rank redacted candidate windows directly through configured TypeSafe; opt-in",
             )
         if name == "zoom":
-            command.add_argument("event", type=int)
+            command.add_argument("event", help="Event ID or note:<id> source reference")
             command.add_argument("--offset", type=int, default=0)
             command.add_argument("--tokens", type=int, default=2000)
         if name == "chat":
@@ -144,7 +150,12 @@ def main():
             emit(archive.stats(args.chat))
         elif args.command == "pack":
             checkpoint_id, packet = checkpoint(
-                archive, args.chat, budget=args.budget, recent_budget=args.recent
+                archive,
+                args.chat,
+                budget=args.budget,
+                recent_budget=args.recent,
+                session=args.session,
+                focus=args.focus,
             )
             if args.output:
                 Path(args.output).write_text(packet.text, encoding="utf-8")

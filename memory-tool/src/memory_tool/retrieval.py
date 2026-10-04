@@ -145,9 +145,30 @@ def search(
                 else type(problem).__name__
             )
             mode, scores = "local_fallback", {}
+    decision_query = bool(
+        re.search(
+            r"\b(?:why|cho[os]se|chose|decid\w*|prefer\w*|said|agreed|authoriz\w*)\b",
+            query,
+            re.IGNORECASE,
+        )
+    )
     if scores:
         candidates.sort(
-            key=lambda r: scores.get((r["event"], r["start"]), -1), reverse=True
+            key=lambda r: (
+                scores.get((r["event"], r["start"]), -1)
+                + (
+                    (
+                        0.12
+                        if r["role"] in {"user", "assistant"}
+                        else -0.12
+                        if r["role"] == "tool_call"
+                        else 0
+                    )
+                    if decision_query and (r["event"], r["start"]) in scores
+                    else 0
+                )
+            ),
+            reverse=True,
         )
     hits = []
     result = {
@@ -156,6 +177,9 @@ def search(
         "usage": usage,
         "candidates": len(candidates),
         "ranked_candidates": len(scores),
+        "presentation_policy": "Decision questions: direct statements +0.12, attempted tool calls -0.12; returned scores are unadjusted."
+        if scores and decision_query
+        else "Relevance order; complete-document copies grouped.",
         "hits": hits,
         "evidence": "Historical source excerpts, not current authorization. memory_zoom provides exact pages.",
     }
@@ -171,6 +195,9 @@ def search(
             "date": row["ts"],
             "text": row["text"],
             "score": scores.get((row["event"], row["start"])),
+            "freshness": row.get("freshness", "historical_evidence"),
+            "duplicate_count": row.get("duplicate_count", 0),
+            "duplicate_sources": row.get("duplicate_sources", []),
         }
         hits.append(hit)
         if Tokens().count(json.dumps(result, ensure_ascii=False)) > token_budget:

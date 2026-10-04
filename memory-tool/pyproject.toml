@@ -1,6 +1,6 @@
 [project]
 name = "memory-tool"
-version = "0.2.0"
+version = "0.3.0"
 description = "Durable chat memory with bounded prompts and verified working-context resets"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,3 +18,7 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.10",
 ]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E401", "E402", "E731"]

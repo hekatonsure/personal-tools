@@ -119,7 +119,7 @@ def capture_rollout(archive, chat, event, max_bytes=64 * 1024 * 1024):
     }
 
 
-def handle(archive: Archive, event, budget=64000, recent=8000, connectome=None):
+def handle(archive: Archive, event, budget=24000, recent=8000, connectome=None):
     kind = event.get("hook_event_name")
     if kind not in {"PreCompact", "SessionStart", "Stop", "UserPromptSubmit"}:
         return {"continue": True}
@@ -147,7 +147,7 @@ def handle(archive: Archive, event, budget=64000, recent=8000, connectome=None):
     }:
         return {"continue": True}
     checkpoint_id, packet = checkpoint(
-        archive, chat, budget=budget, recent_budget=recent
+        archive, chat, budget=budget, recent_budget=recent, session=session
     )
     detail = {
         "checkpoint": checkpoint_id,
@@ -196,7 +196,11 @@ def handle(archive: Archive, event, budget=64000, recent=8000, connectome=None):
         if effective == 512:
             raise ValueError("Hook envelope cannot fit requested budget")
         checkpoint_id, packet = checkpoint(
-            archive, chat, budget=effective, recent_budget=min(recent, effective // 2)
+            archive,
+            chat,
+            budget=effective,
+            recent_budget=min(recent, effective // 2),
+            session=session,
         )
         detail.update({"checkpoint": checkpoint_id, **packet.metadata()})
         archive.operation(operation, chat, session, "prepared", detail)

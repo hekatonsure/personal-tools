@@ -68,6 +68,7 @@ def main():
                 chat,
                 "user",
                 f"HOOK_NATIVE_MARKER = {marker}. This synthetic marker exists only in the external memory archive.",
+                source=f"native:{thread}:external-marker",
             )
             rpc.request("thread/compact/start", {"threadId": thread})
             deadline = time.monotonic() + 240

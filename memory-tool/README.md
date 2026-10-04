@@ -33,18 +33,29 @@ it in a separate versioned runtime before changing the MCP command:
 
 ```powershell
 uv build --wheel
-$env:UV_TOOL_DIR = "$env:USERPROFILE/.local/share/memory-tool/runtimes/0.2.0/tools"
-$env:UV_TOOL_BIN_DIR = "$env:USERPROFILE/.local/share/memory-tool/runtimes/0.2.0/bin"
-uv tool install --from ./dist/memory_tool-0.2.0-py3-none-any.whl memory-tool
+$env:UV_TOOL_DIR = "$env:USERPROFILE/.local/share/memory-tool/runtimes/0.3.0/tools"
+$env:UV_TOOL_BIN_DIR = "$env:USERPROFILE/.local/share/memory-tool/runtimes/0.3.0/bin"
+uv tool install --from ./dist/memory_tool-0.3.0-py3-none-any.whl memory-tool
 ```
 
 Use that version's absolute launcher in MCP/hook configuration. Preserve the old
 runtime until its clients exit. The SQLite archive is outside these runtime folders.
 
+For an already approved installation, `scripts/bridge_runtime.py` can instead
+redirect new invocations of the old launcher to the tested new runtime. It checks
+the new executable's SHA256, preserves the old Python entry module beside it, and
+changes only that entry module. It never replaces a running executable or modifies
+hook definitions, approval records or Codex configuration. Review both paths and
+pass `--old-module`, `--new-executable` and `--expected-sha256`. Retargeting an
+existing bridge additionally requires its exact `--expected-old-module-sha256`.
+Already running MCP processes keep their loaded code until reconnect; newly
+launched lifecycle hooks use the upgrade immediately. Keep both runtimes on disk.
+
 Default Codex policy: reuse context, reset before a turn near **160k tokens**, and
 request a **200k context window**, with native automatic compaction at the reset
-threshold. Rebuilding injects at most **64k `o200k_base` tokens**, including metadata,
-with up to **8k tokens** of recent source events. Change it with `--reset-at`,
+threshold. Rebuilding defaults to a **24k `o200k_base` token ceiling**, including
+metadata, with up to **8k tokens** of recent source events. **64k** remains the
+maximum optional packet budget. Change it with `--reset-at`,
 `--context-limit`, `--budget`, `--recent`, or select `--mode fresh`.
 
 Actual token/cache notifications and conservative local estimates drive rollover.
@@ -110,8 +121,9 @@ Review and trust the two new memory-tool hooks through Codex `/hooks`. No trust
 bypass is used. Restart/reload the client after changing its installed server.
 
 `PreCompact` captures public transcript records and saves a checkpoint;
-`SessionStart` after compact/resume/clear/startup restores a fresh project-scoped
-packet. Retracted notes are re-evaluated. Capture verifies the transcript's session
+`SessionStart` after compact/resume/clear/startup restores a fresh packet scoped to
+the actual native session within its project. Retracted notes are re-evaluated.
+Capture verifies the transcript's session
 and project, handles partial lines without advancing past them, and never ingests
 hidden reasoning. Hooks run locally without models or network calls. Capture is
 bounded to 64 MiB per invocation; incomplete capture is explicitly reported.
@@ -119,31 +131,68 @@ Existing Connectome import can bootstrap older history. Errors preserve the nati
 session and report that recovery failed rather than claiming success.
 
 `memory_status.native_recovery` records **prepared** output, its checkpoint and
-capture backlog; it does not prove model receipt. The packet including its envelope
-is bounded by 64k o200k tokens and a conservative UTF-8/4 estimate for Codex's hook
+capture backlog; it does not prove model receipt. It describes the project's
+latest recovery operation, which may belong to another chat: check its thread and
+`selection.session` before attributing it to the current conversation.
+The packet including its envelope is bounded by the requested budget (24k by
+default) in o200k tokens and a conservative UTF-8/4 estimate for Codex's hook
 output threshold. Native summaries and other installed hook output are additional
-context, so this does not replace native history with an exact 64k allocation.
+context, so this does not replace native history with an exact total allocation.
+
+### Selection, dates and corrections
+
+Restoration favors literal topic matches from recent substantive user messages,
+current-session notes, and explicitly marked durable preferences. Relevance comes
+before pin status. Other chats' events stay available through project-scoped
+search but are not automatically injected by a native session's hook. Manual
+`pack` and `memory_checkpoint` accept `session` and `focus` overrides; omitting
+session retains the logical project's combined history. Lexical focus is a
+heuristic, not semantic understanding. A bounded reserve of the last 16 older
+user messages helps preserve decisions when the topic's vocabulary changes.
+
+Explicit `expires_at` values and a six-hour expiry for narrow operational-status
+patterns keep stale process/restart reports out of automatic restoration. Missing
+dates on status are labeled unverified; recent status remains unverified until
+checked. Explicit `memory_kind: preference` notes do not expire merely because
+their text mentions a process, though an explicit expiry still applies. Ordinary
+historical evidence has no automatic expiry. Regex detection can miss status or
+misclassify mixed prose; all omitted evidence remains on disk and searchable.
+
+Structured claims with `key`, `value` and explicit `corrects: true` resolve a
+conflict only when the correction is strictly newer. A narrow restart-verification
+rule also works within a known session. Other contradictory values remain marked
+unresolved. Resolution records retain both source note IDs; short dedicated
+corrected status notes can be omitted from presentation without deleting them.
+Multi-fact prose is retained. Zoom accepts `note:<id>` for the exact original note,
+including superseded/retracted records. These are evidence rules, not permission.
 
 ## Retrieval and storage
 
 Approval-review transcript copies and replayed search/zoom results are excluded
 from candidate ranking and packed history. They remain immutable and accessible by
 event ID. Derived metadata is rebuilt on upgrade; no source records are deleted.
-Overlapping windows are deduplicated before paid ranking, preserving separate
-dated statements and changed decisions. Lexical search ignores common question
-words and overfetches source windows before selecting distinct events.
+Repeated complete tool documents are grouped before paid ranking after removing
+known transport envelopes. Indentation, literal backslashes, changed document
+versions, exit statuses, errors, other payload fields and separately dated human
+statements stay distinct. Hits include a
+duplicate count and bounded source pointers. Lexical search ignores common
+question words and overfetches a bounded pool (768 windows for the usual
+24-candidate shortlist) before selecting distinct events;
+this finite shortlist can still miss relevant evidence.
 
 Older history uses cached binary-tree literal excerpts, not generative summaries.
 They may omit important facts. Search returns overlapping original windows; zoom
-returns exact character pages and `next_offset`. Oversized recent events keep a
-literal tail and a pointer. Replayed native events collapse semantically while every
+returns exact character pages and `next_offset`. Large recent tool outputs use
+literal head/error/result/tail excerpts plus an exact zoom pointer; they are not
+promised verbatim within the 8k allowance. Replayed native events collapse while every
 source occurrence/raw public provenance remains stored. Generated memory packets
 are excluded from repacking/search; superseded/retracted notes do not become current.
 
 ```powershell
 uv run memory-tool search --chat my-master 'earlier decision'
 uv run memory-tool zoom --chat my-master 42 --offset 0
-uv run memory-tool pack --chat my-master --output C:/private/history.txt
+uv run memory-tool zoom --chat my-master note:example-note-id
+uv run memory-tool pack --chat my-master --session native-thread-id --focus 'retrieval recovery' --output C:/private/history.txt
 ```
 
 `--jev` optionally ranks the first 12 distinct redacted source candidates directly
@@ -153,6 +202,11 @@ come from `TYPESAFE_API_KEY` or its existing Windows user environment value. At 
 three requests per retrieval, four-second HTTP timeouts, 24-hour exact-input cache,
 no automatic retries, local fallback. Redaction is best-effort; enabling Jev exports
 candidate conversation excerpts. Plain retrieval and packing stay local.
+
+For decision questions, presentation adds 0.12 to ranked direct user/assistant
+statements and subtracts 0.12 from attempted tool calls. Returned Jev scores stay
+unadjusted and the response labels this policy. This favors direct explanations
+without asserting that an assistant statement is true or a tool call succeeded.
 
 Store: `~/.local/share/memory-tool/memory.sqlite`, or `MEMORY_TOOL_HOME` / `--db`.
 Use SQLite-aware backups: copying only the main file while WAL is active is insufficient.
@@ -170,7 +224,7 @@ Claude work is deferred; its preliminary adapter is not a supported setup path h
 ```powershell
 uv sync --group dev
 uv run pytest -q
-uv run ruff check src tests scripts --select F
+uv run ruff check src tests scripts evaluations
 uv run python scripts/live_codex.py
 uv run python scripts/cache_compare.py
 uv run python scripts/live_native_hooks.py
@@ -181,3 +235,7 @@ matched prompts/seeds, but one sequential trial per policy is only a smoke compa
 The native hook probe requires the two memory-tool hooks to be trusted normally;
 otherwise it exits with `needs_hook_trust` and makes no model calls.
 See [VALIDATION.md](VALIDATION.md) for observations and limits.
+The fixed [12k/24k/64k evaluation](evaluations/RESULTS-20261004.md) records raw
+answers, strict scores, retrieval calls, token usage and latency, including failed
+development iterations. It supports an initial default, not an optimal budget or
+perfect lifetime recall claim.

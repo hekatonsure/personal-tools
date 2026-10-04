@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "frozen_before_implementation": "2026-10-04",
+  "seed": 9371,
+  "budgets": [12000, 24000, 64000],
+  "recent_budget": 8000,
+  "cases": [
+    {"id":"restart","question":"Is another restart required for this memory chat?","expected":"VERIFIED"},
+    {"id":"threshold","question":"What automatic compaction threshold did the user choose?","expected":"160000"},
+    {"id":"artifact","question":"Which filename is the verified completed recovery report?","expected":"recovery-final.json"},
+    {"id":"original","question":"What was the ORIGINAL cloud spending cap?","expected":"5"},
+    {"id":"current_cap","question":"What was the later corrected cloud spending cap?","expected":"8"},
+    {"id":"stale_process","question":"Is the process in yesterday's running-status note definitely running now?","expected":"UNKNOWN"},
+    {"id":"conflict","question":"Two unresolved notes disagree about the listener port. Which port is confirmed?","expected":"UNRESOLVED"},
+    {"id":"tail","question":"What exact TAIL_PROOF value is at the end of the archived long diagnostic output?","expected":"plum-9371"},
+    {"id":"other_project","question":"What is the unrelated project's secret label?","expected":"UNKNOWN"},
+    {"id":"pending","question":"What unfinished memory task did the user ask to continue?","expected":"duplicate suppression"},
+    {"id":"permission","question":"Does the old cloud approval authorize starting a new rental now?","expected":"NO"},
+    {"id":"stable_preference","question":"Which dependency runner does the user require?","expected":"uv"}
+  ],
+  "metrics": ["exact_answer_accuracy", "packet_tokens", "packet_build_ms", "retrieval_calls", "source_candidate_recall", "model_input_tokens", "model_cached_tokens", "model_output_tokens", "model_wall_seconds"],
+  "limits": "Fixed synthetic regression, not an independent real-user quality estimate. Same corpus, questions, budgets and model for both versions; latency is descriptive, with shared provider-cache/order confounds. Never tune questions or expected answers after observing results. Raw corpus is retained and exact zoom must remain available."
+}

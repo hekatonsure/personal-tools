@@ -1,7 +1,8 @@
 from __future__ import annotations
 import hashlib, json, os, sqlite3, time, uuid
 from pathlib import Path
-from .evidence import query_words, source_kind
+from .evidence import CATALOG_VERSION, query_words, source_kind
+from .selection import duplicate_key, freshness
 
 
 def canonical(project: str) -> str:
@@ -40,18 +41,36 @@ class Archive:
         CREATE TABLE IF NOT EXISTS ranking_cache(key TEXT PRIMARY KEY,value TEXT NOT NULL,created REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS evidence_catalog(event INTEGER PRIMARY KEY,kind TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS evidence_kind ON evidence_catalog(kind,event);
+        CREATE TABLE IF NOT EXISTS derived_versions(name TEXT PRIMARY KEY,version INTEGER NOT NULL);
         """)
         # Derived metadata can evolve without modifying immutable public events.
         with self.db:
+            version = self.db.execute(
+                "SELECT version FROM derived_versions WHERE name='catalog'"
+            ).fetchone()
+            if not version or version[0] < CATALOG_VERSION:
+                self.db.execute("DELETE FROM evidence_catalog")
+                self.db.execute(
+                    "INSERT OR REPLACE INTO derived_versions VALUES('catalog',?)",
+                    (CATALOG_VERSION,),
+                )
+            watermark = self.db.execute(
+                "SELECT version FROM derived_versions WHERE name='catalog_watermark'"
+            ).fetchone()
             missing = self.db.execute(
-                "SELECT e.id,e.role,e.text FROM events e LEFT JOIN evidence_catalog c ON c.event=e.id WHERE c.event IS NULL"
+                "SELECT e.id,e.role,e.text FROM events e LEFT JOIN evidence_catalog c ON c.event=e.id WHERE c.event IS NULL OR e.id>?",
+                (watermark[0] if watermark else 0,),
             ).fetchall()
             self.db.executemany(
-                "INSERT OR IGNORE INTO evidence_catalog VALUES(?,?)",
+                "INSERT OR REPLACE INTO evidence_catalog VALUES(?,?)",
                 [(r["id"], source_kind(r["role"], r["text"])) for r in missing],
             )
             if missing:
                 self.db.execute("DELETE FROM nodes")
+                self.db.execute(
+                    "INSERT OR REPLACE INTO derived_versions VALUES('catalog_watermark',?)",
+                    (max(r["id"] for r in missing),),
+                )
 
     def close(self):
         self.db.close()
@@ -133,7 +152,7 @@ class Archive:
         return [
             dict(r)
             for r in self.db.execute(
-                "SELECT e.* FROM events e JOIN evidence_catalog c ON c.event=e.id WHERE chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo') ORDER BY e.id",
+                "SELECT e.* FROM events e JOIN evidence_catalog c ON c.event=e.id WHERE chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY e.id",
                 (chat,),
             )
         ]
@@ -142,7 +161,7 @@ class Archive:
         return [
             dict(r)
             for r in self.db.execute(
-                "SELECT id,role,ts,substr(text,1,480) AS preview FROM events e JOIN evidence_catalog c ON c.event=e.id WHERE chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo') ORDER BY id",
+                "SELECT id,role,ts,source,c.kind,substr(text,1,480) AS preview FROM events e JOIN evidence_catalog c ON c.event=e.id WHERE chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY id",
                 (chat,),
             )
         ]
@@ -158,7 +177,7 @@ class Archive:
     def zoom(
         self,
         chat: str,
-        event: int,
+        event: int | str,
         offset: int = 0,
         budget: int = 2000,
         encoding: str = "o200k_base",
@@ -167,9 +186,15 @@ class Archive:
 
         if not 128 <= budget <= 8000:
             raise ValueError("Zoom budget must be 128..8000 tokens")
-        row = self.db.execute(
-            "SELECT * FROM events WHERE chat=? AND id=?", (chat, event)
-        ).fetchone()
+        if isinstance(event, str) and event.startswith("note:"):
+            saved = self.db.execute(
+                "SELECT record FROM notes WHERE chat=? AND id=?", (chat, event[5:])
+            ).fetchone()
+            row = {"role": "curated_note", "text": saved[0]} if saved else None
+        else:
+            row = self.db.execute(
+                "SELECT * FROM events WHERE chat=? AND id=?", (chat, event)
+            ).fetchone()
         if not row:
             raise ValueError("Event does not belong to chat")
         if offset < 0 or offset > len(row["text"]):
@@ -218,22 +243,32 @@ class Archive:
         rows = [
             dict(r)
             for r in self.db.execute(
-                "SELECT p.*,e.role,e.ts,c.kind,bm25(passages) AS rank FROM passages p JOIN events e ON e.id=p.event JOIN evidence_catalog c ON c.event=e.id WHERE passages MATCH ? AND p.chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo') ORDER BY rank LIMIT ?",
-                (match, chat, limit * 12),
+                "SELECT p.*,e.role,e.ts,e.source,c.kind,bm25(passages) AS rank FROM passages p JOIN events e ON e.id=p.event JOIN evidence_catalog c ON c.event=e.id WHERE passages MATCH ? AND p.chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY rank LIMIT ?",
+                (match, chat, max(512, limit * 32)),
             )
         ]
         # Dedupe BEFORE paid ranking. Repeated words/overlapping windows from one
         # event must not crowd other source events out of the shortlist.
-        selected, used, copies = [], set(), set()
+        selected, used, copies = [], set(), {}
         for row in rows:
-            key = (row["role"], row["ts"], row["text"].strip())
-            if row["event"] in used or key in copies:
+            if row["event"] in used:
                 continue
-            selected.append(row)
             used.add(row["event"])
-            copies.add(key)
-            if len(selected) == limit:
-                break
+            # Compare complete documents, not matching windows: two versions can
+            # share a paragraph while disagreeing elsewhere.
+            key = duplicate_key(self.event(chat, row["event"]))
+            prior = copies.get(key)
+            if prior is not None:
+                prior["duplicate_count"] = prior.get("duplicate_count", 0) + 1
+                if len(prior.setdefault("duplicate_sources", [])) < 4:
+                    prior["duplicate_sources"].append(
+                        {"event": row["event"], "offset": row["start"], "ts": row["ts"]}
+                    )
+                continue
+            if len(selected) < limit:
+                row["freshness"] = freshness(row)
+                selected.append(row)
+                copies[key] = row
         return selected
 
     def import_connectome(

@@ -47,7 +47,12 @@ TOOLS = [
     tool(
         "memory_zoom",
         "Read exact pages of an archived event; offsets are characters.",
-        {"event": {"type": "integer"}, "offset": {"type": "integer", "minimum": 0}},
+        {
+            "event": {
+                "anyOf": [{"type": "integer"}, {"type": "string", "pattern": "^note:"}]
+            },
+            "offset": {"type": "integer", "minimum": 0},
+        },
         ["event"],
     ),
     tool(
@@ -221,7 +226,7 @@ class CodexGateway:
         archive: Archive,
         chat: str,
         model=None,
-        budget=64000,
+        budget=24000,
         recent=8000,
         rpc_factory=CodexRpc,
         worker_write=False,
@@ -438,7 +443,7 @@ class CodexGateway:
 
 
 def compact_and_restore(
-    rpc, archive, chat, thread, budget=64000, recent=8000, timeout=240
+    rpc, archive, chat, thread, budget=24000, recent=8000, timeout=240
 ):
     """For an idle thread on its owning server. Compaction retains the native summary."""
     before = rpc.request("thread/read", {"threadId": thread, "includeTurns": False})[

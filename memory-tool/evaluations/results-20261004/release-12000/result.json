@@ -1,0 +1,48 @@
+{
+  "implementation_sha256": "519e59279f8f94804c5e6b46ea314a4bb9eb92ad42ef861e612a44af5b9f1de6",
+  "version": "0.3.0",
+  "budget": 12000,
+  "protocol_sha256": "68cbace5f61077a49f9073d29b308449644f0d5f234e0763812d5fcbbe27af8f",
+  "corpus_sha256": "f6b62a01fd60a05a9ccb17c3a986ecd60d2ebcb03a52c29c7c28bae5622a194d",
+  "packet_tokens": 11332,
+  "packet_build_ms": 255.18,
+  "source_candidate_recall": {
+    "restart": true,
+    "threshold": true,
+    "artifact": true,
+    "original": true,
+    "current_cap": true,
+    "tail": true,
+    "pending": true,
+    "stable_preference": true
+  },
+  "retrieval_calls": [],
+  "answer": "{\"restart\":\"NO\",\"threshold\":\"160000\",\"artifact\":\"recovery-final.json\",\"original\":\"5\",\"current_cap\":\"8\",\"stale_process\":\"UNKNOWN\",\"conflict\":\"UNRESOLVED\",\"tail\":\"plum-9371\",\"other_project\":\"UNKNOWN\",\"pending\":\"Continue duplicate suppression for retrieval\",\"permission\":\"NO\",\"stable_preference\":\"uv\"}",
+  "case_correct": {
+    "restart": false,
+    "threshold": true,
+    "artifact": true,
+    "original": true,
+    "current_cap": true,
+    "stale_process": true,
+    "conflict": true,
+    "tail": true,
+    "other_project": true,
+    "pending": false,
+    "permission": true,
+    "stable_preference": true
+  },
+  "model": "gpt-5.6-luna",
+  "model_wall_seconds": 4.481,
+  "usage": {
+    "totalTokens": 18585,
+    "inputTokens": 18391,
+    "cachedInputTokens": 0,
+    "cacheWriteInputTokens": 0,
+    "outputTokens": 194,
+    "reasoningOutputTokens": 117
+  },
+  "exact_answer_accuracy": 0.8333333333333334,
+  "retrieval_attempts": 0,
+  "retrieval_executed": 0
+}

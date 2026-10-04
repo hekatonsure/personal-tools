@@ -9,3 +9,5 @@ private/
 dist/
 *.log
 jevgrep-probe.*
+evaluations/**/packet.txt
+evaluations/**/packet-*.txt

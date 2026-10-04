@@ -1,5 +1,41 @@
 # Validation: 2026-10-04
 
+## Version 0.3 follow-up
+
+48 automated tests and Ruff checks passed. Added coverage includes dated status
+expiry versus durable preferences, exact original-note zoom and project isolation,
+explicit correction sources and unresolved conflicts, same-time/cross-session
+claims, question-versus-assertion handling, native session selection, changing
+topic vocabulary, whole-document duplicate grouping without merging changed
+versions/indentation/backslashes, derived-index migration while an older process
+continues writing, bounded deterministic 12k/24k/64k packets, and guarded runtime
+bridging. Raw records remain immutable.
+
+The default restoration ceiling is now 24k with an 8k recent allowance; 64k remains
+available. The native 160k automatic-compaction / 200k context targets are unchanged.
+See [the fixed evaluation report](evaluations/RESULTS-20261004.md) for all raw trial
+results, exact-match grading limitations and the failed intermediate iteration.
+These are developer-selected regressions, not an independent general quality eval.
+
+The final installed runtime passed actual native compaction with an unseen marker
+written only to the external archive after the model's first turn. The model
+recovered it through the normally trusted lifecycle hook, without manual context
+injection. A fresh native MCP connection discovered all four tools, called status
+and search, and recovered the historical spending-cap message with its source ID.
+The active desktop conversation also visibly received a policy-3 memory packet
+scoped to its own session during normal native compaction. Prepared status alone
+is still not proof of receipt, and the latest project status can describe another
+chat's recovery operation.
+
+Deployment uses a separate versioned 0.3.0 runtime. The existing approved launcher's
+Python entry module dispatches new invocations there; its original module is backed
+up. Hook definitions, Codex configuration and approval records were not changed.
+Existing MCP processes retain their loaded version until reconnect. Newly launched
+hooks and MCP connections use the upgrade without replacing active executables.
+
+The sections below retain earlier-version observations. They do not imply every
+older live probe was rerun for 0.3. Claude remains deferred.
+
 ## Version 0.2 follow-up
 
 32 automated tests passed after adding retrieval source classification, distinct

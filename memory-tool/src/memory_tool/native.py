@@ -35,7 +35,7 @@ def verify_capture(source, thread, project):
         connection.close()
 
 
-def reset_desktop(archive, chat, thread, source, budget=64000, recent=8000):
+def reset_desktop(archive, chat, thread, source, budget=24000, recent=8000):
     project = archive.project(chat)
     snapshot = verify_capture(source, thread, project)
     archive.import_connectome(chat, source, project, thread)
