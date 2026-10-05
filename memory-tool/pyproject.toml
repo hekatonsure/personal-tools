@@ -1,6 +1,6 @@
 [project]
 name = "memory-tool"
-version = "0.3.0"
+version = "0.4.0"
 description = "Durable chat memory with bounded prompts and verified working-context resets"
 readme = "README.md"
 requires-python = ">=3.12"

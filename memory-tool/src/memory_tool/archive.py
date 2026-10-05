@@ -2,7 +2,12 @@ from __future__ import annotations
 import hashlib, json, os, sqlite3, time, uuid
 from pathlib import Path
 from .evidence import CATALOG_VERSION, query_words, source_kind
-from .selection import duplicate_key, freshness
+from .selection import LABEL_VERSION, duplicate_key, freshness, image_free
+
+
+FEEDBACK = ("useful", "noise", "stale", "wrong", "missing")
+# Latest agent verdict for a document; copies of one document share it.
+LATEST_FEEDBACK = "(SELECT verdict||':'||note FROM feedback f WHERE f.chat=e.chat AND f.dup=c.dup ORDER BY f.ts DESC LIMIT 1) AS feedback"
 
 
 def canonical(project: str) -> str:
@@ -39,9 +44,10 @@ class Archive:
         CREATE TABLE IF NOT EXISTS checkpoints(id TEXT PRIMARY KEY,chat TEXT NOT NULL,created REAL NOT NULL,watermark INTEGER NOT NULL,sha TEXT NOT NULL,packet TEXT NOT NULL,tokens INTEGER NOT NULL,encoding TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY,chat TEXT NOT NULL,thread TEXT,state TEXT NOT NULL,detail TEXT NOT NULL,updated REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS ranking_cache(key TEXT PRIMARY KEY,value TEXT NOT NULL,created REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS evidence_catalog(event INTEGER PRIMARY KEY,kind TEXT NOT NULL);
-        CREATE INDEX IF NOT EXISTS evidence_kind ON evidence_catalog(kind,event);
         CREATE TABLE IF NOT EXISTS derived_versions(name TEXT PRIMARY KEY,version INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS labels(dup TEXT PRIMARY KEY,version INTEGER NOT NULL,vector TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS feedback(chat TEXT NOT NULL,dup TEXT,event INTEGER,verdict TEXT NOT NULL,note TEXT NOT NULL,ts REAL NOT NULL);
+        CREATE INDEX IF NOT EXISTS feedback_dup ON feedback(chat,dup,ts);
         """)
         # Derived metadata can evolve without modifying immutable public events.
         with self.db:
@@ -49,7 +55,13 @@ class Archive:
                 "SELECT version FROM derived_versions WHERE name='catalog'"
             ).fetchone()
             if not version or version[0] < CATALOG_VERSION:
-                self.db.execute("DELETE FROM evidence_catalog")
+                self.db.execute("DROP TABLE IF EXISTS evidence_catalog")
+                self.db.execute(
+                    "CREATE TABLE evidence_catalog(event INTEGER PRIMARY KEY,kind TEXT NOT NULL,dup TEXT NOT NULL)"
+                )
+                self.db.execute(
+                    "CREATE INDEX evidence_kind ON evidence_catalog(kind,event)"
+                )
                 self.db.execute(
                     "INSERT OR REPLACE INTO derived_versions VALUES('catalog',?)",
                     (CATALOG_VERSION,),
@@ -58,12 +70,15 @@ class Archive:
                 "SELECT version FROM derived_versions WHERE name='catalog_watermark'"
             ).fetchone()
             missing = self.db.execute(
-                "SELECT e.id,e.role,e.text FROM events e LEFT JOIN evidence_catalog c ON c.event=e.id WHERE c.event IS NULL OR e.id>?",
+                "SELECT e.id,e.role,e.ts,e.text FROM events e LEFT JOIN evidence_catalog c ON c.event=e.id WHERE c.event IS NULL OR e.id>?",
                 (watermark[0] if watermark else 0,),
             ).fetchall()
             self.db.executemany(
-                "INSERT OR REPLACE INTO evidence_catalog VALUES(?,?)",
-                [(r["id"], source_kind(r["role"], r["text"])) for r in missing],
+                "INSERT OR REPLACE INTO evidence_catalog VALUES(?,?,?)",
+                [
+                    (r["id"], source_kind(r["role"], r["text"]), duplicate_key(dict(r)))
+                    for r in missing
+                ],
             )
             if missing:
                 self.db.execute("DELETE FROM nodes")
@@ -136,8 +151,12 @@ class Archive:
             )
             event = row.lastrowid
             self.db.execute(
-                "INSERT INTO evidence_catalog VALUES(?,?)",
-                (event, source_kind(role, text)),
+                "INSERT INTO evidence_catalog VALUES(?,?,?)",
+                (
+                    event,
+                    source_kind(role, text),
+                    duplicate_key({"role": role, "ts": ts, "text": text}),
+                ),
             )
             for start in [] if role == "generated_memory" else range(0, len(text), 768):
                 self.db.execute(
@@ -159,12 +178,59 @@ class Archive:
 
     def event_index(self, chat: str):
         return [
-            dict(r)
+            {
+                **r,
+                "preview": image_free(r["preview"]),
+                "labels": json.loads(r["labels"]) if r["labels"] else None,
+            }
             for r in self.db.execute(
-                "SELECT id,role,ts,source,c.kind,substr(text,1,480) AS preview FROM events e JOIN evidence_catalog c ON c.event=e.id WHERE chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY id",
-                (chat,),
+                f"SELECT id,role,ts,source,c.kind,c.dup,substr(text,1,480) AS preview,l.vector AS labels,{LATEST_FEEDBACK} FROM events e JOIN evidence_catalog c ON c.event=e.id LEFT JOIN labels l ON l.dup=c.dup AND l.version=? WHERE chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY id",
+                (LABEL_VERSION, chat),
             )
         ]
+
+    def add_feedback(self, chat: str, verdict: str, note: str = "", event=None):
+        """Agent judgment on a memory record. It annotates selection; evidence is unchanged."""
+        assert verdict in FEEDBACK, (
+            f"verdict must be one of {FEEDBACK}, got {verdict!r}"
+        )
+        assert len(note) <= 500, "feedback note is limited to 500 characters"
+        if verdict == "missing":
+            assert note.strip(), "missing feedback must describe what was missing"
+            dup = event = None
+        else:
+            assert event is not None, f"{verdict} feedback needs an event"
+            self.event(chat, event)
+            dup = self.db.execute(
+                "SELECT dup FROM evidence_catalog WHERE event=?", (event,)
+            ).fetchone()[0]
+        with self.db:
+            self.db.execute(
+                "INSERT INTO feedback VALUES(?,?,?,?,?,?)",
+                (chat, dup, event, verdict, note, time.time()),
+            )
+        return {
+            "recorded": verdict,
+            "event": event,
+            "applies_to_copies": dup is not None,
+        }
+
+    def feedback_summary(self, chat: str):
+        return {
+            "verdicts": dict(
+                self.db.execute(
+                    "SELECT verdict,count(*) FROM feedback WHERE chat=? GROUP BY verdict",
+                    (chat,),
+                ).fetchall()
+            ),
+            "recent_missing": [
+                r[0]
+                for r in self.db.execute(
+                    "SELECT note FROM feedback WHERE chat=? AND verdict='missing' ORDER BY ts DESC LIMIT 5",
+                    (chat,),
+                )
+            ],
+        }
 
     def event(self, chat: str, event: int):
         row = self.db.execute(
@@ -243,7 +309,7 @@ class Archive:
         rows = [
             dict(r)
             for r in self.db.execute(
-                "SELECT p.*,e.role,e.ts,e.source,c.kind,bm25(passages) AS rank FROM passages p JOIN events e ON e.id=p.event JOIN evidence_catalog c ON c.event=e.id WHERE passages MATCH ? AND p.chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY rank LIMIT ?",
+                f"SELECT p.*,e.role,e.ts,e.source,c.kind,c.dup,{LATEST_FEEDBACK},bm25(passages) AS rank FROM passages p JOIN events e ON e.id=p.event JOIN evidence_catalog c ON c.event=e.id WHERE passages MATCH ? AND p.chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY rank LIMIT ?",
                 (match, chat, max(512, limit * 32)),
             )
         ]
@@ -256,7 +322,7 @@ class Archive:
             used.add(row["event"])
             # Compare complete documents, not matching windows: two versions can
             # share a paragraph while disagreeing elsewhere.
-            key = duplicate_key(self.event(chat, row["event"]))
+            key = row["dup"]
             prior = copies.get(key)
             if prior is not None:
                 prior["duplicate_count"] = prior.get("duplicate_count", 0) + 1

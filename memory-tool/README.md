@@ -33,9 +33,9 @@ it in a separate versioned runtime before changing the MCP command:
 
 ```powershell
 uv build --wheel
-$env:UV_TOOL_DIR = "$env:USERPROFILE/.local/share/memory-tool/runtimes/0.3.0/tools"
-$env:UV_TOOL_BIN_DIR = "$env:USERPROFILE/.local/share/memory-tool/runtimes/0.3.0/bin"
-uv tool install --from ./dist/memory_tool-0.3.0-py3-none-any.whl memory-tool
+$env:UV_TOOL_DIR = "$env:USERPROFILE/.local/share/memory-tool/runtimes/0.4.0/tools"
+$env:UV_TOOL_BIN_DIR = "$env:USERPROFILE/.local/share/memory-tool/runtimes/0.4.0/bin"
+uv tool install --from ./dist/memory_tool-0.4.0-py3-none-any.whl memory-tool
 ```
 
 Use that version's absolute launcher in MCP/hook configuration. Preserve the old
@@ -88,7 +88,8 @@ that project's logical chat; `bff-master` remains the existing BFF scope. An omi
 project uses the configured default. Different projects cannot zoom each other's events.
 
 Restart/reconnect MCP servers if a new registration is not visible in the existing
-client. Tools: `memory_status`, `memory_search`, `memory_zoom`, `memory_checkpoint`.
+client. Tools: `memory_status`, `memory_search`, `memory_zoom`, `memory_feedback`,
+`memory_checkpoint`.
 On Windows, an absolute launcher path from `uv tool dir --bin` avoids stale app PATH state.
 There is no active memo tool. With `--connectome`, retrieval refreshes from its local
 public archive. Existing Connectome hooks/observer capture native chats; gateway
@@ -114,12 +115,24 @@ The supported desktop route uses Codex lifecycle hooks, without the control sock
 uv run python scripts/install_native_hooks.py --executable C:/Users/you/.local/bin/memory-tool.exe --connectome C:/Users/you/.codex/connectome/history.sqlite --reset-at 160000 --context-limit 200000
 ```
 
-This adds two reviewable definitions to `~/.codex/hooks.json`, backs up changed
+On Linux/macOS, without Connectome:
+
+```bash
+uv tool install .
+memory-tool init --chat home --project "$HOME"
+codex mcp add memory_tool -- "$(uv tool dir --bin)/memory-tool" serve --chat home
+uv run python scripts/install_native_hooks.py --executable "$(uv tool dir --bin)/memory-tool"
+```
+
+This adds three reviewable definitions to `~/.codex/hooks.json`, backs up changed
 files, and preserves existing hooks and trust records. The optional context flags
 set native targets in `config.toml`; omit them to retain current context settings.
-Review and trust the two new memory-tool hooks through Codex `/hooks`. No trust
+Review and trust the new memory-tool hooks through Codex `/hooks`. No trust
 bypass is used. Restart/reload the client after changing its installed server.
+Connectome's own SessionStart hook injects its memory as well; with both installed,
+restored context contains both.
 
+`Stop` captures each finished turn, so search sees the current session.
 `PreCompact` captures public transcript records and saves a checkpoint;
 `SessionStart` after compact/resume/clear/startup restores a fresh packet scoped to
 the actual native session within its project. Retracted notes are re-evaluated.
@@ -138,6 +151,16 @@ The packet including its envelope is bounded by the requested budget (24k by
 default) in o200k tokens and a conservative UTF-8/4 estimate for Codex's hook
 output threshold. Native summaries and other installed hook output are additional
 context, so this does not replace native history with an exact total allocation.
+
+### Agent feedback
+
+`memory_feedback` lets an agent judge a record it was shown: `noise`, `stale` or
+`wrong` (with a note) omit that document and its replayed copies from restored older
+history; `useful` keeps it in the continuity reserve; `missing` (no event) records
+what restoration lacked. Search hits and packet events carry the latest verdict as
+`agent_feedback`; `memory_status.agent_feedback` counts verdicts and lists recent
+`missing` notes. Feedback is derived metadata: evidence is never edited, and an
+agent can be wrong, so its verdicts annotate rather than delete.
 
 ### Selection, dates and corrections
 
@@ -181,11 +204,17 @@ question words and overfetches a bounded pool (768 windows for the usual
 this finite shortlist can still miss relevant evidence.
 
 Older history uses cached binary-tree literal excerpts, not generative summaries.
-They may omit important facts. Search returns overlapping original windows; zoom
+Each node keeps 4 excerpts and widens to 8, 16 or 32 while the whole tree still fits
+the packet budget. They may omit important facts. Search returns overlapping original windows; zoom
 returns exact character pages and `next_offset`. Large recent tool outputs use
 literal head/error/result/tail excerpts plus an exact zoom pointer; they are not
 promised verbatim within the 8k allowance. Replayed native events collapse while every
-source occurrence/raw public provenance remains stored. Generated memory packets
+source occurrence/raw public provenance remains stored. Resumed and forked sessions
+replay earlier turns under new session IDs; older history shows each such document
+once, and omits tree previews of events it already shows in full. Harness injections
+(AGENTS.md, skill bodies, environment context, aborted-turn and multi-agent notices,
+Connectome checkpoint prompts) are scaffolding. Base64 images are presented as
+digests. Generated memory packets
 are excluded from repacking/search; superseded/retracted notes do not become current.
 
 ```powershell
@@ -196,12 +225,32 @@ uv run memory-tool pack --chat my-master --session native-thread-id --focus 'ret
 ```
 
 `--jev` optionally ranks the first 12 distinct redacted source candidates directly
-with TypeSafe, from a local shortlist of up to 24. Unranked candidates remain
-available after ranked results. Credentials
+with TypeSafe, from a local shortlist of up to 24. As in gpt-researcher's Jev
+context filter, each passage is scored alone (passages sharing a request shift
+scores onto neighbours) and ranked passages below 1.5 of 3 are dropped; the response
+lists them in `below_threshold` for zoom. Unranked candidates remain available after
+ranked results. Credentials
 come from `TYPESAFE_API_KEY` or its existing Windows user environment value. At most
-three requests per retrieval, four-second HTTP timeouts, 24-hour exact-input cache,
+12 concurrent requests per retrieval, four-second HTTP timeouts, 24-hour exact-input cache,
 no automatic retries, local fallback. Redaction is best-effort; enabling Jev exports
 candidate conversation excerpts. Plain retrieval and packing stay local.
+
+### Named label vectors
+
+`memory-tool label --chat my-master [--limit 2000]` asks Jev seven `noul`
+questions about each unique document (newest first): `decision`, `user_constraint`,
+`outcome`, `failure`, `plan`, `transient_status`, `routine`. Each probability has a
+name, so selection can say why it kept an event. Vectors are cached per duplicate
+key, so replayed copies cost nothing. Labeling is the only networked step; hooks
+and packing read the cache and stay local. Unlabeled events keep keyword selection.
+
+With labels, older history omits events whose content labels (`decision`,
+`user_constraint`, `outcome`, `failure`, `plan`) are all below 0.25. Tree excerpts
+rank by the highest of those labels. Assistant/user turns with `decision` or
+`user_constraint` of at least 0.5 join the continuity reserve. On an 83-session
+private archive, labeling 4,084 documents took 77 s and 3.1M input tokens (about
+$0.13). Older-history mean importance rose from 0.69 to 0.81, with no excerpts
+below 0.25 (13 before). The labels are model judgments, not facts.
 
 For decision questions, presentation adds 0.12 to ranked direct user/assistant
 statements and subtracts 0.12 from attempted tool calls. Returned Jev scores stay

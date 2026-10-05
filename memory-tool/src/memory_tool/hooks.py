@@ -176,7 +176,7 @@ def handle(archive: Archive, event, budget=24000, recent=8000, connectome=None):
                 else {}
             ),
         }
-    header = f"Memory restored for project {canonical(project)}. Use memory tools with project={json.dumps(canonical(project))}. Native compaction retains its own summary.\n"
+    header = f"Memory restored for project {canonical(project)}. Use memory tools with project={json.dumps(canonical(project))}. Report restored records that are noise, stale or wrong, and anything missing, with memory_feedback. Native compaction retains its own summary.\n"
     # The envelope is part of the same history budget.
     from .packing import Tokens
 

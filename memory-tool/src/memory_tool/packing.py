@@ -8,9 +8,11 @@ from dataclasses import dataclass
 import tiktoken
 from .archive import Archive
 from .selection import (
+    LOW_VALUE,
     POLICY_VERSION,
-    duplicate_key,
     event_view,
+    importance,
+    verdict,
     focus_terms,
     freshness,
     relevance,
@@ -76,14 +78,16 @@ class Packet:
         return {k: v for k, v in vars(self).items() if k != "text"}
 
 
-def tree_node(archive: Archive, chat: str, events: list, lo: int, hi: int):
+def tree_node(archive: Archive, chat: str, events: list, lo: int, hi: int, keep=4):
     # Each immutable subtree has its own identity. Appending a turn can reuse
     # earlier nodes, while filtering/reordering source IDs cannot reuse wrong ones.
+    # Labels arrive later than events, so they are part of a node's identity.
+    values = {r["id"]: importance(r) for r in events[lo:hi]}
     cache_chat = (
         chat
         + ":selection:"
         + hashlib.sha256(
-            json.dumps([POLICY_VERSION, [r["id"] for r in events[lo:hi]]]).encode()
+            json.dumps([POLICY_VERSION, keep, list(values.items())]).encode()
         ).hexdigest()
     )
     old = archive.db.execute(
@@ -99,22 +103,26 @@ def tree_node(archive: Archive, chat: str, events: list, lo: int, hi: int):
         ]
     else:
         mid = (lo + hi) // 2
-        candidates = tree_node(archive, chat, events, lo, mid) + tree_node(
-            archive, chat, events, mid, hi
+        candidates = tree_node(archive, chat, events, lo, mid, keep) + tree_node(
+            archive, chat, events, mid, hi, keep
         )
     score = lambda r: (
         (r["role"] == "user")
-        + 2
-        * any(
-            word in r["text"].lower()
-            for word in (
-                "decision",
-                "failed",
-                "cost",
-                "final",
-                "result",
-                "limit",
-                "complete",
+        + (
+            3 * values[r["event"]]
+            if values.get(r["event"]) is not None
+            else 2
+            * any(
+                word in r["text"].lower()
+                for word in (
+                    "decision",
+                    "failed",
+                    "cost",
+                    "final",
+                    "result",
+                    "limit",
+                    "complete",
+                )
             )
         )
     )
@@ -126,7 +134,7 @@ def tree_node(archive: Archive, chat: str, events: list, lo: int, hi: int):
     ]:
         if not any(r["event"] == item["event"] for r in selected):
             selected.append(item)
-        if len(selected) == 4:
+        if len(selected) == keep:
             break
     selected.sort(key=lambda r: r["event"])
     with archive.db:
@@ -135,6 +143,40 @@ def tree_node(archive: Archive, chat: str, events: list, lo: int, hi: int):
             (cache_chat, 0, hi - lo, json.dumps(selected, ensure_ascii=False)),
         )
     return selected
+
+
+def tree_blocks(archive: Archive, chat: str, older_events: list, keep: int):
+    # Cache identity includes the ordered source IDs and policy. Filtering a chat
+    # cannot reuse positional nodes produced for another session or policy.
+    blocks, lo = [], 0
+    while lo < len(older_events):
+        size = 32
+        while lo % (size * 2) == 0 and lo + size * 2 <= len(older_events):
+            size *= 2
+        if lo + size > len(older_events):
+            row = older_events[lo]
+            blocks.append((None, [{"event": row["id"], **row}]))
+            lo += 1
+        else:
+            label = f"Events {older_events[lo]['id']}..{older_events[lo + size - 1]['id']} (literal tree excerpts): "
+            blocks.append(
+                (label, tree_node(archive, chat, older_events, lo, lo + size, keep))
+            )
+            lo += size
+    return blocks
+
+
+def render_tree(blocks: list, skip: set, now: float | None):
+    # Focused events are shown in full; their tree previews would repeat them.
+    return "".join(
+        f"Event {rows[0]['event']} [{rows[0]['role']}, {rows[0]['ts']}, {freshness(rows[0], now)}]: {rows[0]['preview']}\n"
+        if label is None
+        else label
+        + json.dumps([r for r in rows if r["event"] not in skip], ensure_ascii=False)
+        + "\n"
+        for label, rows in blocks
+        if label is not None or rows[0]["event"] not in skip
+    )
 
 
 def build_packet(
@@ -208,12 +250,12 @@ def build_packet(
             expired += 1
             cut -= 1
             continue
-        key = duplicate_key(row)
+        key = events[cut - 1]["dup"]
         if key in seen:
             duplicates += 1
             cut -= 1
             continue
-        view = event_view(row, now)
+        view = event_view({**row, "feedback": events[cut - 1]["feedback"]}, now)
         line = json.dumps(view, ensure_ascii=False) + "\n"
         if counter.count(line + "".join(recent)) > recent_budget:
             if not recent and recent_budget > 80:
@@ -230,64 +272,67 @@ def build_packet(
         truncated |= "presentation" in view
         cut -= 1
     recent_text = "".join(recent)
-    # Cache identity includes the ordered source IDs and policy. Filtering a chat
-    # cannot reuse positional nodes produced for another session or policy.
-    older_events = [
-        e
-        for e in events[:cut]
-        if freshness(e, now) not in {"expired", "unverified_status"}
-    ]
-    expired += cut - len(older_events)
-    older = []
-    lo = 0
-    while lo < len(older_events):
-        size = 32
-        while lo % (size * 2) == 0 and lo + size * 2 <= len(older_events):
-            size *= 2
-        if lo + size > len(older_events):
-            row = older_events[lo]
-            older.append(
-                f"Event {row['id']} [{row['role']}, {row['ts']}, {freshness(row, now)}]: {row['preview']}\n"
-            )
-            lo += 1
+    # Resumed/forked sessions replay history and tools repeat identical output.
+    # Older history shows each document once: its earliest copy, unless recent
+    # events already show it. Every copy stays stored and searchable.
+    older_events, older_duplicates, low_value, feedback_omitted = [], 0, 0, 0
+    for e in events[:cut]:
+        value = importance(e)
+        if freshness(e, now) in {"expired", "unverified_status"}:
+            expired += 1
+        elif e["dup"] in seen:
+            older_duplicates += 1
+        elif verdict(e) in {"noise", "stale", "wrong"}:
+            seen.add(e["dup"])
+            feedback_omitted += 1
+        elif value is not None and value < LOW_VALUE:
+            seen.add(e["dup"])
+            low_value += 1
         else:
-            excerpts = tree_node(archive, chat, older_events, lo, lo + size)
-            older.append(
-                f"Events {older_events[lo]['id']}..{older_events[lo + size - 1]['id']} (literal tree excerpts): "
-                + json.dumps(excerpts, ensure_ascii=False)
-                + "\n"
-            )
-            lo += size
+            seen.add(e["dup"])
+            older_events.append(e)
     # Focused older decisions accompany the time tree; selection uses literal
     # lexical evidence only. Search remains available when those terms miss.
     # Carry a small set of older direct user decisions even when a follow-up
     # changes vocabulary (e.g. "restoration" versus "compaction threshold").
     # This is a bounded continuity reserve, not a claim that lexical focus is recall.
-    older_users = [r["id"] for r in older_events if r["role"] == "user"][-16:]
+    # Labeled decisions and user constraints join it, including assistant turns.
+    reserve = {r["id"] for r in older_events if r["role"] == "user"}
+    reserve = set(sorted(reserve)[-16:]) | {
+        r["id"]
+        for r in older_events
+        if verdict(r) == "useful"
+        or r["role"] in {"user", "assistant"}
+        and r["labels"]
+        and max(r["labels"]["decision"], r["labels"]["user_constraint"]) >= 0.5
+    }
     focused = sorted(
         [
             r
             for r in older_events
-            if relevance(r["preview"], terms) or r["id"] in older_users
+            if relevance(r["preview"], terms) or r["id"] in reserve
         ],
         key=lambda r: (
             r["role"] in {"user", "assistant"},
             relevance(r["preview"], terms),
+            importance(r) or 0,
             r["id"],
         ),
         reverse=True,
     )[:24]
-    focused_lines = []
-    for row in focused:
-        if freshness(row, now) == "expired":
-            continue
-        full = archive.event(chat, row["id"])
-        if duplicate_key(full) in seen:
-            continue
-        focused_lines.append(
-            json.dumps(event_view(full, now), ensure_ascii=False) + "\n"
+    focused_lines = [
+        (
+            row["id"],
+            json.dumps(
+                event_view(
+                    {**archive.event(chat, row["id"]), "feedback": row["feedback"]}, now
+                ),
+                ensure_ascii=False,
+            )
+            + "\n",
         )
-        seen.add(duplicate_key(full))
+        for row in focused
+    ]
     selection = {
         "policy_version": POLICY_VERSION,
         "session": session,
@@ -296,6 +341,10 @@ def build_packet(
         "notes_selected": chosen_notes,
         "notes_omitted": omitted,
         "recent_duplicates_grouped": duplicates,
+        "older_duplicates_grouped": older_duplicates,
+        "older_low_value_omitted": low_value,
+        "older_feedback_omitted": feedback_omitted,
+        "labeled_events": sum(e["labels"] is not None for e in events),
         "expired_status_events": expired,
     }
     summary = f"Selection: {json.dumps(selection, ensure_ascii=False)}\n"
@@ -306,14 +355,25 @@ def build_packet(
     if remaining < 0:
         base = header + "\nSELECTED CURATED EVIDENCE\n"
         remaining = budget - counter.count(base + suffix + "\nOLDER HISTORY\n") - 40
-    tree_text = counter.fit(
-        "".join(older), max(0, remaining // 2 if focused_lines else remaining)
+    # The tree keeps at least half when it needs it; focused events get the rest.
+    narrow = tree_blocks(archive, chat, older_events, 4)
+    focused_text, shown = "", set()
+    focused_allowance = remaining - min(
+        counter.count(render_tree(narrow, set(), now)), remaining // 2
     )
-    remaining -= counter.count(tree_text)
-    focused_text = ""
-    for line in focused_lines:
-        if counter.count(focused_text + line) <= remaining:
+    for event, line in focused_lines:
+        if counter.count(focused_text + line) <= focused_allowance:
             focused_text += line
+            shown.add(event)
+    room = max(0, remaining - counter.count(focused_text))
+    # Fill the budget: widen every tree node while the whole tree still fits.
+    tree_text = render_tree(narrow, shown, now)
+    for keep in (8, 16, 32):
+        wider = render_tree(tree_blocks(archive, chat, older_events, keep), shown, now)
+        if counter.count(wider) > room:
+            break
+        tree_text = wider
+    tree_text = counter.fit(tree_text, room)
     text = base + "\nOLDER HISTORY\n" + tree_text + focused_text + suffix
     if counter.count(text) > budget:
         raise ValueError("Memory metadata and recent content exceed packet budget")

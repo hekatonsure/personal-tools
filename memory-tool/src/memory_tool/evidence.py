@@ -3,7 +3,18 @@
 import json
 import re
 
-CATALOG_VERSION = 3
+CATALOG_VERSION = 4
+HARNESS_PREFIXES = (
+    "# AGENTS.md instructions",
+    "<environment_context>",
+    "<skill>",
+    "<turn_aborted>",
+    "<multi_agent_mode>",
+    "<multi_agent_role>",
+    "<apps_instructions>",
+    "You are `/root`, the primary agent",
+    "[connectome memory checkpoint",
+)
 
 
 STOP_WORDS = set(
@@ -35,6 +46,10 @@ def source_kind(role, text):
             "You are Codex,",
         )
     ):
+        return "scaffolding"
+    # Harness injections arrive as user/developer turns and repeat in every
+    # resumed or forked session. They carry no conversation facts.
+    if role in {"user", "developer"} and head.lstrip().startswith(HARNESS_PREFIXES):
         return "scaffolding"
     if role == "assistant":
         try:

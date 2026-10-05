@@ -24,6 +24,8 @@ def definitions(executable, connectome=None):
                 {**base, "statusMessage": "memory-tool: checkpointing project history"}
             ]
         },
+        # Capturing each finished turn keeps search current between compactions.
+        "Stop": {"hooks": [base]},
         "SessionStart": {
             "matcher": "^(compact|resume|clear|startup)$",
             "hooks": [

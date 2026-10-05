@@ -25,7 +25,7 @@ def test_install_is_additive_idempotent_and_preserves_trust(tmp_path):
         encoding="utf-8",
     )
     result = installer.install(hooks, "C:/memory-tool.exe")
-    assert len(result["added"]) == 2
+    assert result["added"] == ["PreCompact", "Stop", "SessionStart"]
     assert installer.install(hooks, "C:/memory-tool.exe")["added"] == []
     assert (
         json.loads(hooks.read_text())["hooks"]["SessionStart"][0]

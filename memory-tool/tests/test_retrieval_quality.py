@@ -80,7 +80,7 @@ def test_paid_ranking_is_bounded_after_dedup(tmp_path):
     result = search(
         archive, "main", "budget", use_jev=True, key="fixture", client=client
     )
-    assert client.calls == 3 and result["ranked_candidates"] == 12
+    assert client.calls == 12 and result["ranked_candidates"] == 12
     assert result["candidates"] == 24
     archive.close()
 

@@ -10,8 +10,27 @@ from datetime import datetime, timezone
 from .evidence import query_words
 
 
-POLICY_VERSION = 3
+POLICY_VERSION = 4
 STATUS_TTL = 6 * 3600
+LABEL_VERSION = 1
+# Jev label probabilities that make an older event worth carrying. Below the
+# floor on all of them it is routine traffic; zoom and search still reach it.
+CONTENT_LABELS = ("decision", "user_constraint", "outcome", "failure", "plan")
+LOW_VALUE = 0.25
+
+
+def verdict(row):
+    return (row.get("feedback") or "").partition(":")[0] or None
+
+
+def importance(row):
+    # An agent that found the record useful outranks the labeler's guess.
+    if verdict(row) == "useful":
+        return 1.0
+    labels = row.get("labels")
+    return max(labels[k] for k in CONTENT_LABELS) if labels else None
+
+
 GENERIC = set(
     "work working please thanks thank great now next continue keep going everything anything thing things want wanted use used using make made tool tools result results current project session chat context memory agent assistant user codex".split()
 )
@@ -50,6 +69,22 @@ def session_of(row):
     )
 
 
+def list_piece(value, depth):
+    if not isinstance(value, dict):
+        return None
+    if isinstance(value.get("text"), str):
+        return unpack_text(value["text"], depth + 1)
+    # Base64 image bytes are unreadable in a prompt. The digest keeps different
+    # images distinct for grouping; zoom still returns the stored data.
+    if isinstance(value.get("image_url"), str):
+        return f"[image sha256:{hashlib.sha256(value['image_url'].encode()).hexdigest()[:16]}]"
+    return None
+
+
+def image_free(text):
+    return re.sub(r"data:image/[\w.+-]+;base64,[A-Za-z0-9+/=]*", "[image data]", text)
+
+
 def unpack_text(text, depth=0):
     """Remove known transport envelopes only; raw offsets always refer to stored text."""
     if depth > 5:
@@ -61,12 +96,8 @@ def unpack_text(text, depth=0):
     if isinstance(value, str):
         return unpack_text(value, depth + 1)
     if isinstance(value, list):
-        pieces = [
-            unpack_text(v["text"], depth + 1)
-            for v in value
-            if isinstance(v, dict) and isinstance(v.get("text"), str)
-        ]
-        return "\n".join(pieces) if len(pieces) == len(value) and pieces else text
+        pieces = [list_piece(v, depth) for v in value]
+        return "\n".join(pieces) if pieces and None not in pieces else text
     if isinstance(value, dict):
         # Timing/transport IDs can differ for a repeated read; exit status, errors
         # and arbitrary payload fields are evidence and must remain distinguishable.
@@ -321,6 +352,7 @@ def event_view(row, now=None):
         "role": role,
         "ts": row["ts"],
         "freshness": freshness(row, now),
+        **({"agent_feedback": row["feedback"]} if row.get("feedback") else {}),
     }
     if role in {"tool_call", "tool_result"} and len(text) > 1600:
         plain = unpack_text(text)

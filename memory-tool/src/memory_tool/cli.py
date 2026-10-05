@@ -33,6 +33,7 @@ def parser():
         "chat",
         "reset-codex",
         "serve",
+        "label",
     ):
         command = commands.add_parser(name)
         command.add_argument("--chat", required=True, help="Stable logical chat ID")
@@ -65,6 +66,13 @@ def parser():
                 "--jev",
                 action="store_true",
                 help="Rank redacted candidate windows directly through configured TypeSafe; opt-in",
+            )
+        if name == "label":
+            command.add_argument(
+                "--limit",
+                type=int,
+                default=2000,
+                help="Unlabeled unique documents to send to TypeSafe, newest first",
             )
         if name == "zoom":
             command.add_argument("event", help="Event ID or note:<id> source reference")
@@ -164,6 +172,10 @@ def main():
             from .retrieval import search
 
             emit(search(archive, args.chat, args.query, use_jev=args.jev))
+        elif args.command == "label":
+            from .labels import label_events
+
+            emit(label_events(archive, args.chat, limit=args.limit))
         elif args.command == "zoom":
             emit(archive.zoom(args.chat, args.event, args.offset, args.tokens))
         elif args.command == "serve":
