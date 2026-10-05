@@ -241,8 +241,12 @@ candidate conversation excerpts. Plain retrieval and packing stay local.
 questions about each unique document (newest first): `decision`, `user_constraint`,
 `outcome`, `failure`, `plan`, `transient_status`, `routine`. Each probability has a
 name, so selection can say why it kept an event. Vectors are cached per duplicate
-key, so replayed copies cost nothing. Labeling is the only networked step; hooks
-and packing read the cache and stay local. Unlabeled events keep keyword selection.
+key, so replayed copies cost nothing. Labeling is automatic: when unlabeled documents
+exist and a TypeSafe key is available, the `Stop` hook starts a detached labeler
+(up to 500 documents per run) and returns without waiting. A lock file beside the
+archive allows one labeler at a time; output goes to `labels.log`. Set
+`MEMORY_TOOL_AUTO_LABEL=0` to disable. Hooks and packing only read the cache and
+make no network calls themselves. Unlabeled events keep keyword selection.
 
 With labels, older history omits events whose content labels (`decision`,
 `user_constraint`, `outcome`, `failure`, `plan`) are all below 0.25. Tree excerpts

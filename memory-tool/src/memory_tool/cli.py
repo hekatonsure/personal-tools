@@ -173,9 +173,9 @@ def main():
 
             emit(search(archive, args.chat, args.query, use_jev=args.jev))
         elif args.command == "label":
-            from .labels import label_events
+            from .labels import label_locked
 
-            emit(label_events(archive, args.chat, limit=args.limit))
+            emit(label_locked(archive, args.chat, limit=args.limit))
         elif args.command == "zoom":
             emit(archive.zoom(args.chat, args.event, args.offset, args.tokens))
         elif args.command == "serve":

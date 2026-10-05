@@ -1,4 +1,5 @@
 import json
+import os
 import re
 
 from memory_tool.archive import Archive
@@ -226,4 +227,50 @@ def test_tree_widens_to_fill_budget(tmp_path):
     large = build_packet(a, "main", 24000, 300, focus="weather", now=NOW)
     shown = lambda p: len(set(re.findall(r"distinct finding (\d+)", p.text)))
     assert shown(large) > 2 * shown(small) and large.tokens <= 24000
+    a.close()
+
+
+def test_stop_hook_spawns_one_detached_labeler(tmp_path, monkeypatch):
+    import memory_tool.labels as labels
+
+    a = Archive(tmp_path / "a.sqlite")
+    a.register("main", str(tmp_path))
+    started = []
+    monkeypatch.setattr(
+        labels.subprocess, "Popen", lambda cmd, **kw: started.append((cmd, kw))
+    )
+    monkeypatch.setattr(labels, "typesafe_key", lambda: "fixture")
+    assert not labels.spawn_labeler(a, "main")  # nothing to label yet
+    a.append("main", "user", "decide the widget ratio")
+    monkeypatch.setenv("MEMORY_TOOL_AUTO_LABEL", "0")
+    assert not labels.spawn_labeler(a, "main")
+    monkeypatch.setenv("MEMORY_TOOL_AUTO_LABEL", "1")
+    assert labels.spawn_labeler(a, "main")
+    command, options = started[0]
+    assert command[-7:] == [
+        "--db",
+        str(a.path),
+        "label",
+        "--chat",
+        "main",
+        "--limit",
+        "500",
+    ]
+    assert options.get("start_new_session") or options.get("creationflags")
+    (tmp_path / "labels.lock").touch()
+    assert not labels.spawn_labeler(a, "main") and len(started) == 1
+    a.close()
+
+
+def test_label_lock_allows_one_labeler(tmp_path, monkeypatch):
+    import memory_tool.labels as labels
+
+    a = Archive(tmp_path / "a.sqlite")
+    a.register("main", str(tmp_path))
+    monkeypatch.setattr(labels, "label_events", lambda *args, **kw: {"labeled": 0})
+    lock = tmp_path / "labels.lock"
+    lock.touch()
+    assert "skipped" in labels.label_locked(a, "main")
+    os.utime(lock, (0, 0))  # stale holder
+    assert labels.label_locked(a, "main") == {"labeled": 0} and not lock.exists()
     a.close()

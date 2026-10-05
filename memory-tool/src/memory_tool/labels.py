@@ -1,11 +1,14 @@
 """Named Jev label vectors: one probability per question, per unique document.
 
 Every dimension has a name, so a selection can say why it kept or dropped an
-event. Labeling is an explicit networked step; packing only reads the cache.
+event. Labeling runs in a detached process; hooks and packing only read the cache.
 """
 
 import json
 import math
+import os
+import subprocess
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -99,3 +102,48 @@ def label_events(archive, chat, key=None, client=None, limit=2000, workers=12):
         "remaining": len(todo) - len(pending),
         **usage,
     }
+
+
+def label_locked(archive, chat, limit=2000):
+    """One labeler per archive; a crashed holder's lock goes stale after 15 minutes."""
+    lock = archive.path.with_name("labels.lock")
+    try:
+        os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        if time.time() - lock.stat().st_mtime < 900:
+            return {"skipped": "another labeler holds the lock"}
+        lock.touch()
+    try:
+        return label_events(archive, chat, limit=limit)
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def spawn_labeler(archive, chat, limit=500):
+    """Start a detached labeler when unlabeled documents exist. Hooks never wait on it."""
+    if os.environ.get("MEMORY_TOOL_AUTO_LABEL", "1") == "0" or not typesafe_key():
+        return False
+    lock = archive.path.with_name("labels.lock")
+    if lock.exists() and time.time() - lock.stat().st_mtime < 900:
+        return False
+    if not archive.db.execute(
+        "SELECT 1 FROM events e JOIN evidence_catalog c ON c.event=e.id LEFT JOIN labels l ON l.dup=c.dup AND l.version=? WHERE e.chat=? AND l.dup IS NULL AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') LIMIT 1",
+        (LABEL_VERSION, chat),
+    ).fetchone():
+        return False
+    command = [sys.executable, "-c", "from memory_tool.cli import main; main()"]
+    command += ["--db", str(archive.path), "label", "--chat", chat]
+    command += ["--limit", str(limit)]
+    with archive.path.with_name("labels.log").open("a", encoding="utf-8") as log:
+        subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=log,
+            **(
+                {"creationflags": subprocess.DETACHED_PROCESS}
+                if os.name == "nt"
+                else {"start_new_session": True}
+            ),
+        )
+    return True

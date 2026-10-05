@@ -137,6 +137,11 @@ def handle(archive: Archive, event, budget=24000, recent=8000, connectome=None):
     transcript = event.get("transcript_path")
     if transcript and Path(transcript).exists():
         capture = capture_rollout(archive, chat, event)
+    if kind == "Stop":
+        from .labels import spawn_labeler
+
+        # Labels for this turn are ready by the next restore; the hook never waits.
+        spawn_labeler(archive, chat)
     if kind in {"Stop", "UserPromptSubmit"}:
         return {"continue": True}
     if kind == "SessionStart" and event.get("source") not in {
