@@ -89,7 +89,9 @@ def test_fit_keeps_best_session():
 def test_exact_repeat_reuses_locally(tmp_path, monkeypatch):
     import asyncio, time, types
     from session_search import search
-    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)  # any Jev call would fail the assert in Jev()
+    def unexpected_jev(*args, **kwargs):
+        raise AssertionError("Exact cached queries must not authenticate or call Jev")
+    monkeypatch.setattr(search, "Jev", unexpected_jev)
     db = sessions.connect(tmp_path / "i.db")
     args = types.SimpleNamespace(query="Cache  Backend choice", source=None, since=None, cwd=None, exclude=None, depth=12,
                                  windows=48, excerpts=2, exhaustive=False, verbose=False)

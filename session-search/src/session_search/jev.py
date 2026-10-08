@@ -1,6 +1,7 @@
 """Minimal async TypeSafe System One (Jev) client: batching, retries, redaction, answer cache."""
 import asyncio, hashlib, os, re, sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 import httpx, orjson
 
 URL, MODEL = "https://api.typesafe.ai/v1/systemone", "jev-latest"
@@ -34,12 +35,35 @@ class Usage:
         return f"jev: {self.requests} requests ({self.cached} cached), {self.tokens:,} input tokens, ${self.tokens * USD_PER_TOKEN:.4f}"
 
 
+def typesafe_key() -> str:
+    """Environment override, then Jevgrep's saved direct-TypeSafe credentials."""
+    key = os.environ.get("TYPESAFE_API_KEY", "").strip()
+    if key:
+        return key
+    default = Path.home() / ".config"
+    if os.name == "nt":
+        default = Path(os.environ.get("APPDATA") or Path.home() / "AppData/Roaming")
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or default)
+    try:
+        credentials = orjson.loads((config / "jevgrep/credentials.json").read_bytes())
+    except (OSError, orjson.JSONDecodeError):
+        credentials = {}
+    # Keys for gateways/custom endpoints must never be sent to api.typesafe.ai.
+    if isinstance(credentials, dict) and credentials.get("provider") == "typesafe":
+        key = credentials.get("apiKey")
+        if isinstance(key, str) and key.strip():
+            return key.strip()
+    raise ValueError(
+        "No TypeSafe credential found. Set TYPESAFE_API_KEY or run "
+        "jg auth --provider typesafe to save a key."
+    )
+
+
 class Jev:
     """Holds the HTTP client, concurrency limit, answer cache and running usage for one search."""
 
     def __init__(self, db: sqlite3.Connection, concurrency: int = 12, cache: bool = True):
-        key = os.environ.get("TYPESAFE_API_KEY")
-        assert key, "TYPESAFE_API_KEY not set"
+        key = typesafe_key()
         self.http = httpx.AsyncClient(headers={"Authorization": f"Bearer {key}"}, timeout=60)
         self.sem, self.db, self.usage, self.cache = asyncio.Semaphore(concurrency), db, Usage(), cache
 

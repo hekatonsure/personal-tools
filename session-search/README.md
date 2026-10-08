@@ -53,7 +53,11 @@ Session text goes to `api.typesafe.ai`, but hybrid mode sends only ~40 cards and
 
 ## Setup
 
-Needs `TYPESAFE_API_KEY` in the environment (create a key at console.typesafe.ai). On first run, the embedding model (~130 MB) downloads from Hugging Face at a pinned revision. After that it loads from the local cache with no network calls.
+Uses `TYPESAFE_API_KEY` when set, otherwise the direct TypeSafe key saved by
+`jg auth --provider typesafe` in Jevgrep's credentials file (`$XDG_CONFIG_HOME/jevgrep/credentials.json`,
+default `~/.config/jevgrep/credentials.json` on Linux). Saved keys for other providers
+are not reused. Create a key at console.typesafe.ai if neither is configured.
+On first run, the embedding model (~130 MB) downloads from Hugging Face at a pinned revision. After that it loads from the local cache with no network calls.
 
 ```sh
 uv tool install -e ~/personal-tools/session-search   # puts session-search on PATH; re-run with --reinstall after dependency changes
