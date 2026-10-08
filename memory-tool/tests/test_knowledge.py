@@ -246,7 +246,7 @@ def test_jev_labels_promote_lasting_notes_not_routine_plans(archive):
     client = JevClient()
     assert label_events(archive, "main", key="fixture", client=client)["labeled"] == 2
     assert label_events(archive, "main", key="fixture", client=client)["labeled"] == 0
-    packet = build_packet(archive, "main", 3000, 300, session="new")
+    packet = build_packet(archive, "main", 3000, 300, session="new", focus="WAL")
     assert durable["event"] in packet.text
     assert routine["event"] not in packet.text
     assert packet.selection["notes_omitted"]["low_value"] == 1

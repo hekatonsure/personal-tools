@@ -1,5 +1,57 @@
 # Validation
 
+## Activated — 2026-10-08: task scope and ranked-only search
+
+Selection policy 9 / label policy 4 adds Jev `general_preference`: a standing
+user preference that applies beyond one task. Before a task is known, startup
+outside a Git repository injects only notes above the 0.5 general-preference
+threshold, within a 1,200-token note budget. Repository startup retains project
+notes. Focused packets no longer treat every declared preference as universally
+relevant. All active notes remain reachable through the packet's note-tree root.
+
+Successful Jev search now returns only scored, threshold-passing candidates.
+`unranked_omitted` reports the rest of the bounded shortlist. Provider failures
+retain explicitly marked local retrieval. Original events, notes, feedback and
+provenance remain unchanged.
+
+- **264 tests passed**, plus Ruff on `src`, `tests`, `scripts` and diff checks.
+  New regressions cover home/repository startup, omitted-note tree reachability,
+  task-specific preferences, all-weak scores, bounded requests, cache reuse and
+  provider failure. These extend the prior 260-test suite.
+- **13 live scope examples passed**, including five held-out examples. An initial
+  0.8 cutoff rejected valid general preferences; a clearer question and a 0.5
+  cutoff separated general examples (0.60–0.80) from task-specific rules,
+  technical findings and progress reports (0.03–0.13). This small diagnostic set
+  is not a comprehensive classifier benchmark.
+- A private SQLite backup received **3,695 updated labels** (3,333,645 reported
+  input tokens). With identical 24k/8k packet budgets, unfocused startup fell
+  from **9,540 tokens / 24 notes to 2,678 tokens / 4 notes**. Three queries retained
+  their top evidence: completed machine cleanup, SQLite locking cause, and the
+  Taj arm-position constraint. Their unranked hit counts fell from **5/3/4 to
+  0/0/0**, with candidate query times **0.25–0.44 s**. The robot rule remained
+  retrievable despite being excluded from unrelated startup context.
+- Fingerprints of events, provenance, notes and feedback matched before/after
+  replay; SQLite integrity was `ok`. The packaged runtime's 24 Python files
+  matched the tested source, with the previous runtime's exact dependencies.
+- Activated `runtimes/20261008-relevance`, imported only derived labels into the
+  live archive, and retargeted the ordinary launcher and MCP registration.
+  The daemon accepted MCP reload; this chat's actual MCP connection then reported
+  policy 9. Two live searches retained the correct top results with **zero
+  unranked hits**. The ordinary launcher produced a **2,678-token** startup packet.
+  No fresh native compaction/receipt test is claimed.
+
+Private evidence and rollback files are in
+`~/.local/share/memory-tool/deployments/20261008-relevance/`: evaluation script,
+before/after JSON and packets, exact dependencies, wheel, activation database
+backup, previous launcher module/config and reload receipt. Restore the previous
+launcher module and MCP path to roll back; do not overwrite a live archive with
+an old backup. Proxy and hook definitions were not changed.
+
+Remaining limits: semantic scope classification can misjudge ambiguous or mixed
+notes, and near-duplicate general preferences may still occupy separate slots.
+Focused packet selection remains local; semantic query ranking and note-tree
+navigation provide deeper recall on demand.
+
 ## Active salience scoring fix — 2026-10-08, 21:11 UTC
 
 The standing authorization now names memory-tool in both Codex AGENTS.md and

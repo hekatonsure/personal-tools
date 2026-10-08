@@ -188,6 +188,7 @@ def search(
         if i < len(events):
             candidates.append(events[i])
     candidates = candidates[:24]
+    candidate_count = len(candidates)
     ranked = candidates[:max_ranked]
     mode, error = "local", None
     scores = {}
@@ -206,7 +207,12 @@ def search(
             )
             mode, scores = "local_fallback", {}
     decision_query = decision_question(query)
+    unranked_omitted = 0
     if scores:
+        unranked_omitted = sum(
+            (r["event"], r["start"]) not in scores for r in candidates
+        )
+        candidates = [r for r in candidates if (r["event"], r["start"]) in scores]
         candidates.sort(
             key=lambda r: (
                 scores.get((r["event"], r["start"]), -1)
@@ -235,8 +241,9 @@ def search(
         "mode": mode,
         "error": error,
         "usage": usage,
-        "candidates": len(candidates),
+        "candidates": candidate_count,
         "ranked_candidates": len(scores),
+        "unranked_omitted": unranked_omitted,
         "note_navigation": navigation,
         "below_threshold": [
             {

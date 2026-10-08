@@ -146,7 +146,7 @@ bounded to 64 MiB per invocation; incomplete capture is explicitly reported.
 Existing Connectome import can bootstrap older history. Errors preserve the native
 session and report that recovery failed rather than claiming success.
 
-Empty conversations receive a bounded startup orientation (selection policy 6).
+Empty conversations receive a bounded startup orientation (selection policy 9).
 Git identifies the starting directory's repository, including nested repositories
 and linked worktrees. Up to three recent sessions from that repo appear first,
 with dated task/outcome excerpts; up to five recent topics from other locations
@@ -167,6 +167,17 @@ Archive bindings are not migrated: sessions started from a home directory remain
 there, discoverable through the general index. Outside a Git repo, startup says
 so and supplies only general references. Existing conversations retain their own
 session history rather than receiving a fresh unrelated-session overview.
+
+Before the first task is known, a startup outside a Git repository includes only
+notes classified as standing, cross-task user preferences (Jev
+`general_preference` probability at least 0.5). This section is capped at 1,200
+tokens. Unclassified notes and task-specific pins wait for task context; pins and
+high durability alone do not imply general applicability. Repository startup
+still includes its own project notes. With a task focus, unrelated preferences
+are excluded unless classified as general or supplied in the same session.
+These labels select historical evidence; they do not grant permission.
+The note-tree root continues to reach all active notes, including notes omitted
+from the packet, and exact originals remain available through search and zoom.
 
 `memory_status.native_recovery` records **prepared** output, its checkpoint and
 capture backlog; it does not prove model receipt. It describes the project's
@@ -527,8 +538,12 @@ uv run memory-tool pack --chat my-master --session native-thread-id --focus 'ret
 with TypeSafe, from a local shortlist of up to 24. As in gpt-researcher's Jev
 context filter, each passage is scored alone (passages sharing a request shift
 scores onto neighbours) and ranked passages below 1.5 of 3 are dropped; the response
-lists them in `below_threshold` for zoom. Unranked candidates remain available after
-ranked results. Credentials
+lists them in `below_threshold` for zoom. Successful semantic search returns only
+scored passages that pass the threshold; `unranked_omitted` reports the remaining
+shortlist size. It never fills spare space with unjudged candidates. `candidates`
+counts the complete shortlist before filtering. If the provider fails or has no
+credential, the explicitly named local fallback retains lexical retrieval.
+Credentials
 come from `TYPESAFE_API_KEY` or its existing Windows user environment value. At most
 12 concurrent requests per retrieval, four-second HTTP timeouts, 24-hour exact-input cache,
 no automatic retries, local fallback. Redaction is best-effort; enabling Jev exports
@@ -581,9 +596,10 @@ autonomous reconciliation and topic embeddings remain future work.
 
 ### Named label vectors
 
-`memory-tool label --chat my-master [--limit 2000]` asks Jev eight `noul`
+`memory-tool label --chat my-master [--limit 2000]` asks Jev nine `noul`
 questions about each unique document (notes first, then newest events): `decision`, `user_constraint`,
-`outcome`, `failure`, `plan`, `transient_status`, `routine`, `durable`. Each probability has a
+`outcome`, `failure`, `plan`, `transient_status`, `routine`, `durable`,
+`general_preference`. Each probability has a
 name, so selection can say why it kept an event. Vectors are cached per duplicate
 key, so replayed copies cost nothing. Labeling is automatic: when unlabeled documents
 exist and a TypeSafe key is available, the `Stop` hook starts a detached labeler
@@ -592,7 +608,8 @@ archive allows one labeler at a time; output goes to `labels.log`. Set
 `MEMORY_TOOL_AUTO_LABEL=0` to disable. Hooks and packing only read the cache and
 make no network calls themselves. Unlabeled events keep keyword selection.
 
-Label policy 3 favors reusable findings, causal explanations and lasting decisions.
+Label policy 4 distinguishes general user preferences from task-specific rules,
+while favoring reusable findings, causal explanations and lasting decisions.
 Routine and transient scores discount plans, outcomes, failures and generic
 decisions; constraints and durable findings retain their score in mixed prose.
 Older history and notes below 0.25 are omitted from restoration. Routine event

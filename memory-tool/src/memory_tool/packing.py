@@ -195,11 +195,20 @@ def build_packet(
     note_sync = sync_markdown(archive, chat)
     index = archive.event_index(chat)
     terms = focus_terms(index, session, focus)
+    events = [e for e in index if not session or session_of(e) == session]
+    startup = bool(
+        session and not any(e["role"] in {"user", "assistant"} for e in events)
+    )
+    from .orientation import repository_root
+
+    unfocused_startup = (
+        startup and not terms and repository_root(archive.project(chat)) is None
+    )
+    all_notes = archive.active_notes(chat)
     notes, resolutions, omitted = select_notes(
-        archive.active_notes(chat), terms, session, now
+        all_notes, terms, session, now, unfocused_startup=unfocused_startup
     )
     # A native session is the current conversation, not every chat in this project.
-    events = [e for e in index if not session or session_of(e) == session]
     other_sessions = len(index) - len(events)
     retrieval_calls = sum(e["kind"] == "retrieval_call" for e in events)
     events = [e for e in events if e["kind"] != "retrieval_call"]
@@ -226,18 +235,21 @@ def build_packet(
     note_allowance = min(
         budget // 3, max(0, budget - recent_budget - counter.count(header) - 150)
     )
+    if unfocused_startup:
+        note_allowance = min(note_allowance, 1200)
     for resolution in resolutions:
         line = json.dumps({"claim_review": resolution}, ensure_ascii=False) + "\n"
         if counter.count("".join(note_lines) + line) <= note_allowance:
             note_lines.append(line)
     chosen_notes = 0
-    note_root = note_tree(archive, chat, notes)
+    # Selection limits what is injected, not what the navigation tree can reach.
+    note_root = note_tree(archive, chat, all_notes)
     if note_root:
         note_lines.append(
             json.dumps(
                 {
                     "note_tree": note_root,
-                    "notes": len(notes),
+                    "notes": len(all_notes),
                     "evidence": "Historical project notes; zoom follows branches to exact note records.",
                 }
             )
@@ -377,6 +389,7 @@ def build_packet(
         "notes_selected": chosen_notes,
         "notes_omitted": omitted,
         "note_index": note_sync,
+        "unfocused_startup": unfocused_startup,
         "recent_duplicates_grouped": duplicates,
         "older_duplicates_grouped": older_duplicates,
         "older_low_value_omitted": low_value,
@@ -391,7 +404,7 @@ def build_packet(
     # SessionStart normally precedes the first human prompt. Keep established
     # conversations scoped, but orient a new one by repo before other locations.
     orientation = ""
-    if session and not any(e["role"] in {"user", "assistant"} for e in events):
+    if startup:
         from .orientation import startup_orientation
 
         allowance = min(4000, max(0, budget - counter.count(base + suffix) - 300))

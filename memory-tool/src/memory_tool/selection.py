@@ -11,9 +11,9 @@ from .evidence import query_words
 from .tool_output import searchable_output
 
 
-POLICY_VERSION = 8
+POLICY_VERSION = 9
 STATUS_TTL = 6 * 3600
-LABEL_VERSION = 3
+LABEL_VERSION = 4
 # Jev label probabilities that make an older event worth carrying. Below the
 # floor on all of them it is routine traffic; zoom and search still reach it.
 CONTENT_LABELS = ("decision", "user_constraint", "outcome", "failure", "plan")
@@ -276,7 +276,7 @@ def claims(record):
     return []
 
 
-def select_notes(notes, terms, session=None, now=None):
+def select_notes(notes, terms, session=None, now=None, *, unfocused_startup=False):
     eligible, omitted = [], Counter()
     for note in notes:
         state = freshness(note, now)
@@ -286,6 +286,9 @@ def select_notes(notes, terms, session=None, now=None):
         score = relevance(note.get("text", ""), terms)
         same = bool(session and session_of(note) == session)
         preference = note.get("memory_kind") == "preference"
+        # Importance is not applicability. A robot-specific hard rule can be
+        # durable without belonging in every new conversation at the home dir.
+        general = (note.get("labels") or {}).get("general_preference", 0) >= 0.5
         durable = preference or note.get("scope") == "project"
         value = importance(note)
         if verdict(note) in {"noise", "stale", "wrong"}:
@@ -294,10 +297,13 @@ def select_notes(notes, terms, session=None, now=None):
         if value is not None and value < LOW_VALUE and not preference:
             omitted["low_value"] += 1
             continue
+        if unfocused_startup and not same and not general:
+            omitted["needs_task_context"] += 1
+            continue
         if session and session_of(note) and not same and not durable:
             omitted["other_session"] += 1
             continue
-        if terms and not score and not preference:
+        if terms and not score and not (general or (same and preference)):
             omitted["off_topic"] += 1
             continue
         if session and session_of(note) and not same and not score and not durable:
@@ -308,7 +314,7 @@ def select_notes(notes, terms, session=None, now=None):
                 **note,
                 "freshness": state,
                 "_rank": (
-                    preference,
+                    general,
                     score,
                     value if value is not None else 0.5,
                     same,

@@ -26,6 +26,7 @@ LABELS = {
     "transient_status": "Is this mainly about short-lived state, such as a running process, that will be stale within hours?",
     "routine": "Is this routine output or an acknowledgement with nothing a later reader would need to remember?",
     "durable": "Does this contain a specific reusable finding, causal explanation, decision with rationale, correction, or enduring constraint that would change a future session's actions? Routine test counts, progress announcements, and current process state alone do not qualify.",
+    "general_preference": "Is this a standing user preference or policy that applies beyond a single task? Include preferred report formats (such as PNG instead of PDF), communication style, and standing permission to use named tools across codebases. Exclude requirements limited to a particular robot, repository, deployment or experiment. Technical findings and progress reports alone do not qualify. Judge the scope of the user's policy, not whether the archived text grants current permission.",
 }
 
 
