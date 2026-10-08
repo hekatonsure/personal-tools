@@ -16,8 +16,9 @@ def parser():
     )
     commands = root.add_subparsers(dest="command", required=True)
     hook = commands.add_parser(
-        "hook", help="Native Codex lifecycle hook; reads its event from stdin"
+        "hook", help="Native Codex/Claude lifecycle hook; reads its event from stdin"
     )
+    hook.add_argument("--backend", choices=["codex", "claude"], default="codex")
     hook.add_argument("--budget", type=int, default=24000)
     hook.add_argument("--recent", type=int, default=8000)
     hook.add_argument(
@@ -34,9 +35,69 @@ def parser():
         "reset-codex",
         "serve",
         "label",
+        "proxy",
     ):
         command = commands.add_parser(name)
         command.add_argument("--chat", required=True, help="Stable logical chat ID")
+        if name == "proxy":
+            command.add_argument(
+                "--provider", choices=["anthropic", "openai"], required=True
+            )
+            command.add_argument(
+                "--upstream",
+                required=True,
+                help="Fixed upstream origin, optionally with a base path",
+            )
+            command.add_argument(
+                "--session",
+                required=True,
+                help="One conversation ID per proxy instance",
+            )
+            command.add_argument("--port", type=int, default=8787)
+            command.add_argument(
+                "--codex-home",
+                type=Path,
+                help="Route native Codex threads by protocol identity and this directory's thread registry",
+            )
+            command.add_argument(
+                "--compact-at",
+                type=int,
+                help="Opt in to older tool-result compaction above this local token estimate",
+            )
+            command.add_argument(
+                "--keep-turns",
+                type=int,
+                default=3,
+                help="User turns to preserve in full (default: 3)",
+            )
+            command.add_argument(
+                "--result-chars",
+                type=int,
+                default=500,
+                help="Head/tail characters retained per old text tool result",
+            )
+            command.add_argument(
+                "--summary-tree",
+                action="store_true",
+                help="Use persistent summary lines instead of tool-result excerpts",
+            )
+            command.add_argument(
+                "--summary-model",
+                help="Opt in to Codex summary calls with this model; otherwise literal lines",
+            )
+            command.add_argument("--summary-lines", type=int, default=32)
+            command.add_argument(
+                "--summary-calls",
+                type=int,
+                default=8,
+                help="Maximum model calls per tree update (default: 8)",
+            )
+            command.add_argument(
+                "--summary-seconds",
+                type=float,
+                default=30,
+                help="Total model-call time budget per tree update (default: 30)",
+            )
         if name in {"init", "import-connectome"}:
             command.add_argument("--project", required=True)
         if name == "import-connectome":
@@ -75,7 +136,9 @@ def parser():
                 help="Unlabeled unique documents to send to TypeSafe, newest first",
             )
         if name == "zoom":
-            command.add_argument("event", help="Event ID or note:<id> source reference")
+            command.add_argument(
+                "event", help="Event ID, note:<id>, or tree:<id> source reference"
+            )
             command.add_argument("--offset", type=int, default=0)
             command.add_argument("--tokens", type=int, default=2000)
         if name == "chat":
@@ -138,6 +201,7 @@ def main():
                     budget=args.budget,
                     recent=args.recent,
                     connectome=args.connectome,
+                    backend=args.backend,
                 )
             except Exception as error:
                 result = {
@@ -156,6 +220,27 @@ def main():
             )
         elif args.command == "status":
             emit(archive.stats(args.chat))
+        elif args.command == "proxy":
+            from .proxy import serve_proxy
+
+            archive.project(args.chat)
+            serve_proxy(
+                str(archive.path.resolve()),
+                args.chat,
+                args.session,
+                args.provider,
+                args.upstream,
+                args.port,
+                compact_at=args.compact_at,
+                summary_tree=args.summary_tree,
+                summary_model=args.summary_model,
+                summary_lines=args.summary_lines,
+                summary_calls=args.summary_calls,
+                summary_seconds=args.summary_seconds,
+                keep_turns=args.keep_turns,
+                result_chars=args.result_chars,
+                codex_home=args.codex_home,
+            )
         elif args.command == "pack":
             checkpoint_id, packet = checkpoint(
                 archive,

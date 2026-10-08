@@ -191,3 +191,13 @@ def test_public_tool_results_and_hidden_reasoning(archive):
         record_item(archive, "main", "t", item, "completed")
     assert not any("hidden" in r["text"] for r in archive.events("main"))
     assert len([r for r in archive.events("main") if r["role"] == "tool_result"]) == 2
+
+
+def test_gateway_zoom_accepts_tree_references(archive):
+    from memory_tool.summary_tree import SummaryTree
+
+    event = archive.append("main", "user", "Keep this source.")
+    node = SummaryTree(archive, "main", "fixture").advance([event])[0]
+    gateway = CodexGateway(archive, "main")
+    result = gateway._tool("memory_zoom", {"event": "tree:" + node["id"]})
+    assert f"Original: memory_zoom event={event}" in result["text"]

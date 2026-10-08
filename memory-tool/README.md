@@ -1,13 +1,15 @@
 # memory-tool
 
-Durable local memory for Codex. Public messages, tool calls and tool results stay
+Durable local memory for Codex and Claude Code. Public messages, tool calls and tool results stay
 in SQLite. A master assistant delegates file work and recovers original evidence
 through search and paged zoom. Context is reused until a reset is needed.
 
 | Mode | What it controls |
 |---|---|
 | Native Codex MCP | Adds bounded retrieval/checkpoints to desktop and CLI chats; native context management remains in charge. |
+| Native Claude hooks + MCP | Captures Claude transcripts and restores bounded memory after compaction; implemented with offline validation, live receipt pending. |
 | Codex gateway | Owns turn construction, context reuse and resets; disposable backend contexts share one durable logical chat. |
+| Codex HTTP proxy | Archives and reduces outgoing history; optional native thread routing lets one local service serve multiple projects. |
 
 ## Start
 
@@ -143,6 +145,19 @@ bounded to 64 MiB per invocation; incomplete capture is explicitly reported.
 Existing Connectome import can bootstrap older history. Errors preserve the native
 session and report that recovery failed rather than claiming success.
 
+Empty conversations receive a bounded startup orientation (selection policy 5).
+Git identifies the starting directory's repository, including nested repositories
+and linked worktrees. Up to three recent sessions from that repo appear first,
+with dated task/outcome excerpts; up to five recent sessions from other locations
+follow as topic references. The orientation uses at most 4k tokens within the
+existing packet budget, including at most 1k for general references. Noise/stale/
+wrong feedback, expired status and known low-value records remain excluded.
+Each reference carries its original project and event IDs for search/zoom.
+Archive bindings are not migrated: sessions started from a home directory remain
+there, discoverable through the general index. Outside a Git repo, startup says
+so and supplies only general references. Existing conversations retain their own
+session history rather than receiving a fresh unrelated-session overview.
+
 `memory_status.native_recovery` records **prepared** output, its checkpoint and
 capture backlog; it does not prove model receipt. It describes the project's
 latest recovery operation, which may belong to another chat: check its thread and
@@ -151,6 +166,254 @@ The packet including its envelope is bounded by the requested budget (24k by
 default) in o200k tokens and a conservative UTF-8/4 estimate for Codex's hook
 output threshold. Native summaries and other installed hook output are additional
 context, so this does not replace native history with an exact total allocation.
+
+### Native Claude Code (live validation pending)
+
+Claude uses the same archive and memory tools, with a separate transcript parser.
+`Stop` captures public messages and tool blocks; `PreCompact` checkpoints them;
+`SessionStart` restores a bounded packet after compact/resume/clear/startup.
+This does not replace Claude's own compaction or native summary. It makes no
+Claude model calls. The optional background Jev labeler behaves as on Codex;
+`MEMORY_TOOL_AUTO_LABEL=0` disables it.
+
+From this directory, after installing the updated memory-tool runtime:
+
+```bash
+uv tool install --force .
+memory-tool init --chat home --project "$HOME"
+uv run --frozen python scripts/install_claude_hooks.py \
+  --executable "$(uv tool dir --bin)/memory-tool" --chat home --dry-run
+# Omit --dry-run to install the reviewed definitions.
+```
+
+On Windows, use the separate-runtime upgrade procedure above instead of replacing
+a running tool. The installer uses Claude's documented
+[hook settings](https://code.claude.com/docs/en/hooks) in `~/.claude/settings.json`
+and [user MCP configuration](https://code.claude.com/docs/en/mcp) in `~/.claude.json`.
+It backs up changed files, preserves unrelated settings and permissions, and
+refuses conflicting memory-tool definitions. `--path`, `--mcp-path` and `--db`
+allow explicit destinations; a custom database is passed to both hooks and MCP.
+No Claude process is launched by the installer. Reload Claude to use the setup.
+
+Existing Supermemory hooks and tools are preserved. If both systems inject startup
+context, both remain active until you choose which injection to keep.
+
+Claude's recorded working directory can change during a conversation. Capture
+anchors the archive project to the first public record's directory and keeps that
+scope in its cursor. Use the project path printed in the restored packet when
+calling memory tools. Session filtering separates Claude and Codex conversations
+within a project; project-wide search can find either.
+
+Capture preserves source UUIDs and timestamps, excludes thinking blocks, and
+retains generated compaction summaries only as excluded evidence. Partial lines
+are retried. Rewritten transcripts are rescanned when the cursor's trailing bytes
+change or the file shrinks; UUIDs prevent duplicate imports. Capture has a 64 MiB
+per-hook allowance and an 8 MiB per-line limit. Remaining bytes are reported as
+backlog; oversized lines require separate handling. Mixed-session/fork transcripts
+and sidechains are rejected rather than imported into the wrong conversation.
+Native compaction, forks and actual model receipt still need live Claude checks.
+
+### HTTP proxy and tool-result compaction (experimental)
+
+The first proxy stage forwards Anthropic Messages or OpenAI Responses HTTP
+requests to one explicitly configured upstream. It streams response entity bytes
+unchanged, including thinking signatures and encrypted reasoning. Requests pass
+unchanged by default; `--compact-at` enables the rule described below. See the protocol references for
+[Anthropic streams](https://platform.claude.com/docs/en/build-with-claude/streaming)
+and [Responses streams](https://developers.openai.com/api/reference/resources/responses/streaming-events).
+
+By default, run one proxy instance per conversation, using an existing archive chat
+and a distinct session ID. For example, these commands start listeners only; they do not
+launch a model or change any client configuration:
+
+```bash
+uv run --frozen memory-tool proxy --chat home --session my-claude-conversation \
+  --provider anthropic --upstream https://api.anthropic.com --port 8787
+# Alternatively, for a Responses API client:
+uv run --frozen memory-tool proxy --chat home --session my-responses-conversation \
+  --provider openai --upstream https://api.openai.com --port 8788
+```
+
+For a persistent native Codex service, add `--codex-home /absolute/path/to/.codex`.
+The proxy resolves consistent UUIDs from Codex protocol metadata against its newest
+local `state_*.sqlite` thread registry, with native hook records as an early-start
+fallback. Each native thread gets independent compactor state and its project's
+archive chat, matching MCP project routing. The cache holds at most 128 threads;
+eviction/restart rebuilds from persisted evidence. A thread's project binding is
+persistent. Missing/conflicting identity, unknown projects, changed project bindings
+or unreadable registries pass through without capture or rewriting; prompt text is
+never used to guess a project. Native `/responses/compact` requests pass through
+verbatim without capture. `GET /health` exposes bounded aggregate routing counts.
+
+The 2026-10-07 installation on this machine uses this mode with a user service,
+the existing ChatGPT login and unchanged main model/reasoning settings. Details,
+restart instructions, backups and disable command are in
+[the live setup note](md_archive/codex-live-setup.md).
+
+The upstream URL's base path is prepended to the incoming path. With the examples
+above, clients POST to `/v1/messages` or `/v1/responses` on the local listener.
+An upstream ending in `/v1` instead takes incoming `/responses`. Anthropic
+`/v1/messages/count_tokens` also passes through, without conversation capture.
+Authentication headers come from the client and pass to that upstream. The proxy
+does not read credential files, follow redirects, retry requests or configure
+subscription routing. Codex ChatGPT login has now passed an isolated live probe
+using a separately configured custom Responses provider and the ChatGPT upstream;
+see the probe command below. Claude subscription routing remains unverified.
+
+Public text and supported tool blocks are added to the archive. Each exchange
+also records request/response byte counts, SHA256 hashes and capture status in
+the `operations` table (`proxy:` IDs). Raw HTTP bodies, headers, thinking and
+encrypted reasoning are not persisted. Images/documents get fingerprints, and
+unknown block types are omitted. Replayed full-history prefixes reuse source IDs;
+incremental Responses inputs remain distinct. Fixed proxy session IDs participate
+in packet selection but do not automatically map to native hook session IDs.
+Native Codex routing instead uses the actual thread identity.
+
+Archive or parsing failures leave forwarding intact and are reported separately.
+Complete public responses are captured only after the response finishes. A
+broken stream closes the client connection without inventing a terminal event.
+`delivered` means the proxy finished writing, not proof that the client consumed
+the response. Response capture is bounded to 8 MiB; compressed bodies pass
+unchanged but are currently marked `unsupported_encoding` instead of parsed.
+Unknown formats, incomplete streams and oversized captures retain status metadata.
+
+The listener binds only `127.0.0.1`, accepts local Host headers, rejects browser
+Origin headers, and permits plain HTTP upstreams only at literal loopback IPs.
+Request bodies require one Content-Length and are limited to 32 MiB; chunked
+uploads, WebSockets and other routes are unsupported. HTTP hop-by-hop headers and
+connection framing are rebuilt. See VALIDATION.md for the live Codex results and
+the remaining provider/transport boundaries.
+
+#### Optional threshold-based compaction
+
+Add `--compact-at 128000` to enable local rule-based compaction. `--keep-turns 3`
+and `--result-chars 500` are the defaults. Above the threshold, the proxy keeps the
+head and tail of eligible older text tool results, adding a `memory_zoom` event ID
+for their archived originals. The original must be saved successfully before any
+reduction. Configure the client's memory MCP tools to use the same archive and
+project/chat so those IDs can be retrieved.
+
+Only tool-result string values change. All surrounding request bytes—including
+system instructions, tool schemas, user messages, assistant text, call arguments,
+thinking signatures, encrypted reasoning and image blocks—stay intact. The latest
+three actual user turns stay whole; Anthropic tool-result-only user messages do
+not count as new turns. The rule retains tool calls/results in place with their
+IDs and error flags, and does not summarize or change call arguments.
+
+The reduced prefix is reused while its original history matches, until the
+reduced request crosses the threshold again. A changed prefix invalidates reuse.
+This state lives only in the proxy process; restarting recomputes it from the
+original request. The optional summary-tree mode below replaces this rule.
+No summary model is called by the tool-result rule.
+
+The threshold is an estimate: the larger of `o200k_base` tokens and UTF-8 bytes/4
+for the JSON body. It is not the provider's exact context count or a hard limit.
+Large recent turns or preserved text may leave the result over budget; diagnostics
+then report `target_met: false`. Compaction never removes protected content to
+force the target. Token-count endpoints remain unchanged, so this does not
+guarantee suppression of a client's native compaction.
+
+Compressed or HTTP-signed requests, incremental/server-managed Responses history,
+duplicate JSON keys, parser failures and archive failures pass through unchanged.
+Missing/ambiguous archive IDs or unmatched tool results are left intact. Compaction
+is opt-in. Live Codex compaction and source retrieval have passed; live encrypted
+reasoning/signature behavior and general answer quality remain unverified.
+
+Exchange diagnostics in `operations.detail` include `compaction` (reason, local
+before/after estimates, cutoff and target status), `request_sha256` for the original,
+and `forwarded_request_sha256`/`forwarded_request_bytes` for the actual upstream
+body. This records the transformation without persisting private reasoning.
+
+#### Incremental summary tree (experimental)
+
+OpenAI reasoning items can leave the forwarded window with complete older steps.
+They are never decrypted, archived, or sent to the summary model. Recent reasoning
+and its tool calls stay intact. A live medium-reasoning Codex run passed five
+distinct compactions, a proxy-process restart, and recovery of two details absent
+from forwarded history and summaries. All 29 requests succeeded. Summary latency
+remains substantial; see VALIDATION.md for measurements and limits.
+
+Add `--summary-tree` alongside `--compact-at` to replace a complete older history
+span with a persistent view of summary lines. The first user message, top-level
+instructions/tool schemas, and the latest `--keep-turns` user turns remain exact.
+The default is free literal lines. Model-written lines require an explicit model:
+
+```bash
+uv run --frozen memory-tool proxy --chat home --session my-conversation \
+  --provider openai --upstream https://api.openai.com --port 8788 \
+  --compact-at 128000 --summary-tree --summary-model gpt-6.1-sol
+```
+
+This starts a listener; it does not configure or launch the main client. When a
+request needs reduction, `--summary-model` permits summary calls through the local
+Codex installation and its authentication. The adapter uses
+[`codex exec --ephemeral`](https://learn.chatgpt.com/docs/non-interactive-mode),
+low effort, an isolated temporary directory, and disabled hooks, MCP, tools and
+plugins. It removes inherited provider base-URL overrides to avoid proxy recursion.
+The adapter and proxy have passed an isolated live Codex ChatGPT-login probe,
+including model-generated nodes and native MCP traversal back to an original
+source. This is a functionality check, not a general summary-quality evaluation.
+
+Each leaf covers one archived public event. Messages already fitting 512 UTF-8
+bytes use their own flattened text. Longer messages can get a model summary;
+merges use the two child lines without surrounding context. The view appends new
+leaves and, beyond `--summary-lines 32`, merges the adjacent pair most overdue
+relative to its size/age. Merged nodes never split during forward progress.
+Parent/child links preserve every source even when its detail disappears from a
+line. `memory_zoom event="tree:<id>"` opens children and eventually exact event
+IDs; ordinary search still searches original evidence, not generated summaries.
+Use the updated memory MCP process with the same archive/project as the proxy.
+
+SQLite stores nodes and the current view separately from immutable raw events.
+Replays and restarts reuse saved nodes; changed/reordered/rewound history resets
+the view. Cache identities include the summary prompt, model and byte limit.
+Fallback lines are cached too, so a later successful model call does not silently
+rewrite an earlier prefix. The proxy reuses its injected prefix until the local
+threshold is crossed again. Appending lines preserves earlier lines; a fold can
+change an older portion, so cache hits are not guaranteed.
+
+`--summary-calls 8` and `--summary-seconds 30` bound model attempts and their total
+time allowance per tree update. No retries run automatically. Missing models,
+timeouts, empty/multiline/oversized answers and exhausted allowances use literal
+head/tail excerpts. Inputs over 64,000 UTF-8 bytes also use literal excerpts.
+These bounds limit work, not monetary cost; model summaries consume the selected
+Codex authentication route's usage. `--result-chars` applies only to the older
+tool-result mode.
+
+The proxy replaces older spans only at user-turn boundaries, with complete,
+uniquely paired tool calls/results and exact archived public evidence. Known,
+completed OpenAI reasoning items inside those spans are removed with their model
+steps; even their readable reasoning summaries are excluded from the memory tree.
+A reasoning-only interrupted step, unknown reasoning fields, Claude thinking or
+signatures, images, citations, and unknown content/metadata remain barriers.
+The preserved prefix and recent suffix, including reasoning, stay byte-identical.
+Cached replacements recheck the user boundary and tool pairs against each request.
+Signed/encoded/provider-managed requests and failures pass through.
+Local token estimates may remain above the threshold (`target_met: false`).
+Native hook packets still use the existing literal-excerpt selector. The live
+Codex probe is reproducible with synthetic data and temporary per-thread settings:
+
+```bash
+uv run --frozen python scripts/live_proxy_codex.py --mode tree \
+  --summary-model gpt-6.1-sol --native-mcp
+```
+
+This uses the existing Codex account's quota. Reports go outside the repository
+under `~/.local/share/memory-tool/evals/codex-proxy/`; normal client configuration
+is unchanged. The live test covered public assistant phases, including tree-node
+zoom through the actual MCP server. It did not exercise encrypted reasoning,
+Claude, long-session endurance or general repeated-merge quality.
+
+The more realistic probe uses native coding tools and a
+mid-session requirement change, then gates restart/recall on proven omission:
+
+```bash
+uv run --frozen python scripts/live_codex_session.py --effort medium
+```
+
+Its reports live under `~/.local/share/memory-tool/evals/codex-session/`. It stops
+before restart/recall if no details were compacted away, and exits nonzero on
+failure. It does not modify normal client configuration.
 
 ### Agent feedback
 
@@ -270,7 +533,8 @@ This follows [OptMem's](https://github.com/VictorTaelin/OptMem) binary-tree/exte
 philosophy with Connectome's scoped notes and source evidence. It does not prove
 perfect lifetime recall: FTS can miss paraphrases, previews lose detail, and packing
 currently scans event metadata. Tested at 10k synthetic events, not hundreds of millions.
-Claude work is deferred; its preliminary adapter is not a supported setup path here.
+Claude native capture/recovery has offline coverage; live installation and model
+receipt remain unverified. The older Claude gateway is separate from native hooks.
 
 ## Verify
 

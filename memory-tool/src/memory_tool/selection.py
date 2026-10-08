@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from .evidence import query_words
 
 
-POLICY_VERSION = 4
+POLICY_VERSION = 5
 STATUS_TTL = 6 * 3600
 LABEL_VERSION = 1
 # Jev label probabilities that make an older event worth carrying. Below the
@@ -64,7 +64,8 @@ def session_of(row):
     parts = row.get("source", "").split(":")
     return (
         parts[1]
-        if len(parts) > 2 and parts[0] in {"native", "codex", "connectome", "dynamic"}
+        if len(parts) > 2
+        and parts[0] in {"native", "codex", "claude", "proxy", "connectome", "dynamic"}
         else None
     )
 

@@ -40,6 +40,8 @@ class Archive:
         CREATE TABLE IF NOT EXISTS provenance(chat TEXT NOT NULL,source TEXT NOT NULL,event INTEGER NOT NULL,raw TEXT NOT NULL,UNIQUE(chat,source));
         CREATE TABLE IF NOT EXISTS notes(chat TEXT NOT NULL,id TEXT NOT NULL,record TEXT NOT NULL,UNIQUE(chat,id));
         CREATE TABLE IF NOT EXISTS nodes(chat TEXT NOT NULL,lo INTEGER NOT NULL,hi INTEGER NOT NULL,excerpts TEXT NOT NULL,UNIQUE(chat,lo,hi));
+        CREATE TABLE IF NOT EXISTS summary_nodes(chat TEXT NOT NULL,id TEXT NOT NULL,record TEXT NOT NULL,PRIMARY KEY(chat,id));
+        CREATE TABLE IF NOT EXISTS summary_views(chat TEXT NOT NULL,scope TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(chat,scope));
         CREATE VIRTUAL TABLE IF NOT EXISTS passages USING fts5(text,chat UNINDEXED,event UNINDEXED,start UNINDEXED);
         CREATE TABLE IF NOT EXISTS checkpoints(id TEXT PRIMARY KEY,chat TEXT NOT NULL,created REAL NOT NULL,watermark INTEGER NOT NULL,sha TEXT NOT NULL,packet TEXT NOT NULL,tokens INTEGER NOT NULL,encoding TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS operations(id TEXT PRIMARY KEY,chat TEXT NOT NULL,thread TEXT,state TEXT NOT NULL,detail TEXT NOT NULL,updated REAL NOT NULL);
@@ -252,7 +254,11 @@ class Archive:
 
         if not 128 <= budget <= 8000:
             raise ValueError("Zoom budget must be 128..8000 tokens")
-        if isinstance(event, str) and event.startswith("note:"):
+        if isinstance(event, str) and event.startswith("tree:"):
+            from .summary_tree import zoom_text
+
+            row = {"role": "derived_summary", "text": zoom_text(self, chat, event[5:])}
+        elif isinstance(event, str) and event.startswith("note:"):
             saved = self.db.execute(
                 "SELECT record FROM notes WHERE chat=? AND id=?", (chat, event[5:])
             ).fetchone()

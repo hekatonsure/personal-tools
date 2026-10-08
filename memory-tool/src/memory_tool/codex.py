@@ -49,7 +49,7 @@ TOOLS = [
         "Read exact pages of an archived event; offsets are characters.",
         {
             "event": {
-                "anyOf": [{"type": "integer"}, {"type": "string", "pattern": "^note:"}]
+                "anyOf": [{"type": "integer"}, {"type": "string", "pattern": "^(note:|tree:)"}]
             },
             "offset": {"type": "integer", "minimum": 0},
         },
@@ -281,7 +281,7 @@ class CodexGateway:
     def _tool(self, name, arguments):
         if name == "memory_zoom":
             return self.archive.zoom(
-                self.chat, int(arguments["event"]), int(arguments.get("offset", 0))
+                self.chat, arguments["event"], int(arguments.get("offset", 0))
             )
         if name == "memory_search":
             from .retrieval import search

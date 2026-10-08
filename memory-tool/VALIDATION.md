@@ -1,4 +1,348 @@
-# Validation: 2026-10-04
+# Validation
+
+## Repository-first startup recall: 2026-10-07
+
+Diagnosed an empty live startup packet: 584 source events existed in other home
+sessions, but selection filtered all of them out before ranking and there were no
+curated notes. Policy 5 adds bounded startup orientation for empty conversations:
+repository history first, then a small cross-project session directory with exact
+retrieval scopes. Existing session restoration and original archive bindings stay
+intact. Repository discovery asks Git; sandbox-created empty `.git` directories
+must not be mistaken for repositories.
+
+**220 tests passed**, including seven new regressions covering repository/subdir
+grouping, general references, established-session isolation, feedback/expiry,
+ambiguous logical chats, byte-preserving originals, chronological ordering, small
+packet budgets, nested repos, worktrees and empty Git guards. The initial full run
+had 27 loopback socket permission failures; rerunning with local socket access
+passed. Ruff and diff checks passed. Real-archive snapshot replay finds general
+references from home, resolves memory-tool's parent repository, and selects robot
+repo history before other sessions. Home-started memory-development sessions are
+still correctly referenced under home, not silently assigned to personal-tools.
+
+Installed a separate `20261007-recall` runtime and retargeted the existing launcher
+bridge. Only `packing.py`, `selection.py` and new `orientation.py` differ from the
+previous installed package. Before/after installed-hook replay on a SQLite backup
+passed for home, a personal-tools subdirectory and rusty-robots; the actual bridged
+launcher then returned policy 5 with repo history before general references.
+Hooks, trust/config files and the running proxy service were not changed.
+Evidence and bridge backup: `~/.local/share/memory-tool/deployments/20261007-recall/`.
+New hook launches use the fix immediately; existing MCP processes retain their
+loaded version until reconnect. No live archive migration was performed.
+
+This verifies selection and hook output, not a new model-receipt or summary-quality
+evaluation. Startup references only cover archived conversations; it does not
+import all historical Codex/Claude sessions or infer a repo from arbitrary prose.
+
+## Normal Codex installation and native routing: 2026-10-07
+
+Installed and enabled after user authorization. A dated runtime, an unchanged
+approved MCP/hook command bridged to that runtime, and a persistent user service
+now support normal Codex use. The config selects the local Responses provider,
+keeps `gpt-6-astra` / `high`, uses existing ChatGPT authentication, and disables
+WebSockets for this provider. Configuration, hooks and the live SQLite archive
+were backed up before activation; rollback preserves newly accumulated evidence.
+
+The single-conversation proxy gained explicit `--codex-home` native routing. It
+uses protocol UUIDs plus local thread/project records, persistent project bindings
+and a bounded per-thread compactor cache. Unknown/conflicting identity passes
+through without capture. `/responses/compact` passes through unchanged. Local
+regressions cover session/project separation, changed project bindings, missing
+identities, metadata disagreement, restart/cache behavior and HTTP forwarding.
+**213 local tests passed; lint and diff checks clean.**
+
+A live native-routing probe with `gpt-6-astra` passed all nine requests, actual
+thread attribution, compaction, native MCP search/zoom and recovery of an omitted
+marker. Then two fresh sessions using the installed global config and installed
+MCP exercised the running service in different disposable projects: both called
+`memory_status` successfully, all four requests returned HTTP 200, and all public
+evidence was captured in the correct project. These installation probes complement
+the medium-reasoning/model-summary stress run below; they do not establish a new
+large-context or latency benchmark. The two installed-config test threads were
+archived after completion.
+
+Settings, evidence paths, operating commands and rollback are recorded in
+[md_archive/codex-live-setup.md](md_archive/codex-live-setup.md). Existing active
+threads are not switched mid-turn; restart/reconnect Codex to load this setup.
+
+## Reasoning-aware Codex tree compaction: 2026-10-07
+
+The tree now replaces complete older spans containing recognized OpenAI encrypted
+reasoning. It cuts only at user-turn boundaries, verifies unique tool-call/result
+pairs stay wholly inside the removed span, and requires model output after each
+reasoning run before a user/result boundary. Unknown reasoning fields, malformed
+payloads and unfinished steps still block replacement. The existing default keeps
+three recent user turns; the live stress probe keeps one.
+
+Old reasoning is removed with its associated steps, without decrypting it or
+including it in the public archive or summary model. Public evidence remains
+zoomable. The original prefix and recent suffix are preserved byte for byte,
+including retained reasoning. Cached replacements recheck both the user boundary
+and tool-pair closure. Claude thinking/signature blocks remain protected; this
+change applies only to the known OpenAI Responses format.
+
+This choice follows source inspection of Gobstopper commit
+`2c6d33fd02e9ee1b1c2212bbd9a3847da5bce148`: its Responses adapter omits encrypted-only
+reasoning from summaries and its compactor retains whole recent model steps.
+Our implementation keeps the existing, more conservative user-turn boundaries
+and the public-only memory archive. Gobstopper was inspected, not live-tested.
+
+Local validation: **202 tests passed**, Ruff and `git diff --check` clean. New
+regressions cover old/recent reasoning, public-only summary inputs and storage,
+interrupted/malformed steps, parallel tools, cross-boundary results, HTTP proxy
+forwarding, restart reuse, and a changed suffix invalidating a cached boundary.
+The live audit independently checks exact kept bytes and retained reasoning;
+its regression deliberately corrupts/removes retained reasoning and detects both.
+Intentional removal is counted separately from retained-state preservation.
+
+The realistic live rerun **passed** with `gpt-6.1-sol`, medium reasoning, native
+coding tools and native memory MCP. All **29 upstream exchanges returned HTTP
+200** and all public inputs/outputs were captured. There were **five distinct
+compaction boundaries**, 26 rewritten requests, and no `protected_history`
+failures. Requests contained up to six encrypted reasoning items; up to six old
+items were removed with their completed steps. Every audit confirmed exact kept
+history bytes and retained reasoning. One compaction reduced the request from
+**147,169 to 36,835 bytes** (about 75%; byte savings, not token or cost savings).
+
+All 96 audit receipts were absent from both the forwarded request and every
+generated summary before the recovery challenge. The probe deleted the source
+file, restarted the actual proxy process on the same port, and verified its 62
+existing nodes were unchanged. Codex recovered `RECEIPT_032` and `RECEIPT_064`
+exactly through original-source `memory_zoom` results, and correctly recalled the
+new higher-index tie rule and why it changed. Prior nodes stayed intact; the
+disposable project's eight tests and independent behavior assertions passed.
+
+The six turns took 11.27, 49.89, 57.53, 52.35, 47.56 and 44.96 seconds. Rewrite work
+totaled **117.83 seconds**, including 20 summary calls: 17 generated model nodes
+and three used literal fallback after failure. This demonstrates bounded fallback,
+not uniformly successful or low-latency summaries. Final main-session cumulative
+usage was 327,895 input tokens (231,680 cached), 5,741 output tokens, and 299
+reasoning output tokens (part of output). Summary subprocess usage is additional
+and is not included in those totals; no cost comparison is established.
+
+Evidence: `~/.local/share/memory-tool/evals/codex-session/20261007-150752/report.json`,
+`proxy-audit.jsonl`, `final-tests.txt`, and the public SQLite archive. The proxy,
+Codex session and temporary workspace exited cleanly. Normal client settings and
+installed runtimes are unchanged. This closes the earlier reasoning blocker for
+the tested Codex format; Claude, unusual provider formats, long-session quality,
+and summary latency still need separate validation. The historical failure below
+records the behavior before this fix.
+
+## Realistic reasoning-enabled Codex session: 2026-10-07 (failed compaction)
+
+The follow-up workload **did not pass**. It used `gpt-6.1-sol` at medium effort,
+native shell/file tools in a disposable project, the real memory MCP registration,
+and a separate proxy process configured for model-written summary trees. Codex
+diagnosed a faulty integer allocator, implemented it, checked 4,704 deterministic
+cases, then changed the tie policy and updated code/tests/docs. The final native
+tool output reported eight unit tests and 4,704 property cases passing.
+
+All **14 upstream exchanges returned HTTP 200**, and all public inputs/outputs
+were captured. Requests explicitly specified medium reasoning; provider-reported
+cumulative usage included **218 reasoning output tokens**, and requests contained
+up to five encrypted reasoning items. Those items remained unchanged. Unlike the
+earlier simple probe, this exercised the protected-history barrier: **11 requests
+reported `protected_history`, zero requests were compacted, and zero summary
+nodes/model calls were produced**.
+
+The five work turns took 12.79, 36.86, 20.64, 26.81 and 2.85 seconds. Proxy rewrite
+checks totaled 0.20 seconds. Last cumulative provider usage was 214,277 input tokens
+(191,872 cached) and 3,487 output tokens; these are usage observations, not a price
+estimate. No summary-model usage occurred because the guard prevented reduction.
+
+The probe required two archived audit receipts to be absent from the forwarded
+history and all generated summaries before testing recall. None qualified, so it
+stopped with `No two archived receipts were demonstrably omitted; recall test
+cannot proceed`. **Proxy restart and post-compaction recall were not exercised**;
+successful recall from the still-complete history would not establish the desired
+behavior. The listener, Codex process and disposable workspace were cleaned up.
+Normal client configuration and installed runtimes remain unchanged.
+
+Evidence: `~/.local/share/memory-tool/evals/codex-session/20261007-143525/report.json`,
+`proxy-audit.jsonl`, and the public SQLite archive. The new opt-in
+`scripts/live_codex_session.py` retains failure diagnostics and returns a nonzero
+status when its assertions fail. Ruff and `git diff --check` pass; this turn changed
+the probe/documentation, not the production implementation. The prior 187-test
+suite result below remains the latest local regression run.
+
+Next implementation requirement: make compaction useful with interleaved encrypted
+reasoning while preserving it and valid tool-call/result relationships. Then rerun
+the repeated-compaction, actual proxy-process restart and omitted-detail recovery
+checks. The earlier live success below is limited to the simpler public-history
+probe and does not establish readiness for normal reasoning-enabled sessions.
+
+## Live Codex proxy and summary tree: 2026-10-07
+
+The complete isolated Codex path passed with `gpt-6.1-sol`: existing ChatGPT login,
+loopback Responses proxy, model-written summary-tree injection, and the checkout's
+actual memory MCP server. The custom provider used `requires_openai_auth=true`,
+`supports_websockets=false` and per-thread settings; upstream was
+`https://chatgpt.com/backend-api/codex`. Global settings and installed runtimes were
+not changed. Only synthetic evidence was used; no Claude process was launched.
+
+The final native-MCP run discovered all five memory tools. Its first reduced
+request went from **70,848 to 31,408 bytes**. Two model-written nodes were created
+with no model failures, including a merged node. Later requests reused the
+injected prefix. All nine upstream exchanges returned HTTP 200 and captured both
+input and completed public output. Codex called search, opened two `tree:<id>`
+references through native MCP, and paged the original event twice to verify the
+exact random marker. The original-source page containing it was checked in the
+public tool audit.
+
+Earlier live probes separately verified pass-through and tool-result compaction
+(67,635 to 28,552 bytes). A literal-tree probe verified recovery after the random
+marker was absent from a forwarded request. In the model-tree runs the summary
+retained that marker: they prove summary injection and original-source traversal,
+not recovery of a fact omitted by a model summary. This small synthetic sequence
+is not a repeated-merge quality evaluation.
+
+Live testing exposed and fixed three integration gaps: the subscription route
+omitted Content-Type on SSE responses; ordinary Codex assistant messages carried
+public `phase` labels that the tree rejected; and the gateway's zoom adapter
+coerced tree references to integers. Missing media type is now accepted only for
+explicit streaming requests, still requiring a completed terminal event. Only
+known public phases are accepted; unknown metadata and opaque reasoning remain
+protected. The first compaction fixture also needed to explicitly emit its tool
+result from Codex's code runner; its initial recall success was not counted as
+compaction success.
+
+**187 local tests passed** after these fixes; Ruff and `git diff --check` passed.
+The final native-MCP probe used the same code plus the explicit MCP test path.
+Run the opt-in probe with:
+
+```bash
+uv run --frozen python scripts/live_proxy_codex.py --mode tree \
+  --summary-model gpt-6.1-sol --native-mcp
+```
+
+Reports and synthetic archives are outside the repository under
+`~/.local/share/memory-tool/evals/codex-proxy/`. Final native-MCP evidence is in
+`20261007-142454-tree/report.json`; the literal omission/recovery probe is
+`20261007-142258-tree/report.json`. Probe listeners/processes were stopped and
+temporary workspaces removed. The reports retain earlier failures as well.
+
+Limits: this does not enable the proxy for normal Codex launches. The deliberately
+low 5,000-token test threshold remained unmet because protected harness/tool and
+recent content alone exceeded it. The tested requests contained no encrypted
+reasoning items; handling them remains covered by synthetic tests, with early
+opaque history still preventing tree reduction. No new desktop-native hook reset,
+Claude live test, long-session endurance or general summary-quality test is claimed.
+
+## Incremental summary tree: 2026-10-07 (local only)
+
+Added persistent summary nodes and per-session views, append/merge updates that
+never split an existing node during forward progress, and `memory_zoom` traversal
+from `tree:<id>` through children to exact original event IDs. Cache identity
+includes the prompt, model and byte limit. Raw events remain unchanged. Short
+messages use their own flattened lines; model calls are opt-in, bounded by count
+and time, and fall back to cached literal excerpts on failure or invalid output.
+
+Proxy `--summary-tree` replaces a complete archived public span after the initial
+task and before recent turns. Opaque reasoning, images, citations, unknown
+metadata and incomplete/cross-boundary tool pairs prevent replacement of that
+span. Initial task, top-level fields and recent suffix bytes stay exact. The
+existing tool-result mode remains the default when only `--compact-at` is set.
+
+All **181 local tests passed** (`uv run --frozen pytest -q`, with loopback permission
+for mock HTTP servers). New coverage includes a 256-event multilevel tree with
+ordered source recovery, restart/replay reuse, append stability, changed/rewound
+history, policy identity, project isolation, bounded zoom, concurrent view-update
+conflicts, UTF-8 limits, call/time budgets, invalid model answers and cached
+fallbacks. Both provider fixtures verify tree injection, exact untouched bytes,
+source mappings, protected history, rechecked tool pairs on prefix reuse, archive
+failure, signed requests and token-count pass-through. Mock HTTP checks compare
+original/forwarded hashes and verify unchanged responses. An initial fixture
+mistake in the signed-request test was corrected before the full passing rerun.
+
+Ruff on `src`, `tests` and `scripts`, formatting of new modules/tests, CLI help and
+`git diff --check` passed. The Codex low-effort adapter was tested with a stub
+subprocess only. No live model calls, runtime installation or client configuration
+changes occurred; the earlier evaluation runner was not modified.
+
+Limits: these tests establish tree/storage/transport behavior, not model summary
+quality or repeated-merge accuracy. Live subscription routing and provider
+acceptance remain unverified. An early opaque reasoning block can prevent any
+tree reduction, and protected content may leave the request above its estimated
+threshold. The native hook packet selector still uses the existing excerpt tree.
+Next validation: a controlled live summary/repeated-merge evaluation, then a
+provider acceptance and source-recovery probe when live testing is resumed.
+
+## HTTP proxy stage 2: 2026-10-07 (local only)
+
+Added opt-in `--compact-at`, `--keep-turns` and `--result-chars`. The rule replaces
+older archived tool-result text with head/tail excerpts and original event IDs.
+It preserves all other JSON bytes, including recent user turns, tool-call/result
+structure, signatures and encrypted reasoning. Prefix reuse persists within the
+proxy process until another reduction is needed or the original prefix changes.
+
+All **128 local tests passed** (`uv run --frozen pytest -q`, with loopback permission
+for mock HTTP servers). Coverage includes both provider formats, exact untouched
+byte ranges, tool-result-only user messages, source recovery, changed/reused
+prefixes, multi-part text/image results, malformed/duplicate-key JSON, no-reduction
+cases, target-unmet reporting, signed/encoded requests and archive-failure fallback.
+Local proxy tests verify upstream reduced bodies against original archive contents
+and separately recorded original/forwarded hashes; responses remain unchanged.
+
+Ruff on `src`, `tests` and `scripts` and `git diff --check` passed. No live model
+calls, quota usage, client configuration changes or runtime installation occurred.
+Live subscription routing, provider/signature acceptance and answer quality are
+still unverified. Counting uses a local estimate; preserved content may exceed the
+threshold. Count-token endpoints remain unchanged. This is a tool-result reduction
+rule, not yet the incremental model-written memory tree.
+
+The stage-1 and Claude sections below retain their earlier check counts.
+
+## HTTP proxy stage 1: 2026-10-07 (local mock servers only)
+
+Added `memory-tool proxy`: loopback HTTP pass-through for Anthropic Messages and
+OpenAI Responses, with bounded public-evidence capture independent of forwarding.
+Request/response bodies stay byte-identical; HTTP framing is rebuilt. No prompt
+compaction, client configuration or credential discovery is implemented yet.
+
+Local mock-server tests exercise early streaming delivery, byte/hash equality,
+auth and beta-header forwarding without archival leakage, thinking/signature and
+encrypted-reasoning exclusion, tool reconstruction, nonstream Responses, upstream
+HTTP errors/redirects without retries, archive failure, partial streams, malformed
+JSON, bounded/encoded capture, source replay, and loopback/request restrictions.
+The first sandbox run could not open sockets (`PermissionError: [Errno 1] Operation
+not permitted`); socket tests run with loopback permission. No provider requests,
+Claude processes, subscription usage or live configuration changes are involved.
+
+The complete local suite passed: **102 tests** (`uv run --frozen pytest -q`).
+Ruff passed on `src`, `tests` and `scripts`; `git diff --check` and the proxy CLI
+help check passed. The existing summary-model evaluation runner remains untouched.
+
+Current limits: compressed response bytes are forwarded but not parsed for
+capture; unknown blocks are omitted; capture stores public content rather than
+raw HTTP. WebSockets and chunked request uploads are unsupported. Subscription
+routing and live provider compatibility remain unverified. Rule-based compaction
+and incremental summary-tree injection are the next stages.
+
+## Claude native support: 2026-10-07 (offline only)
+
+Added native Claude JSONL capture and `hook --backend claude`, plus an additive
+Claude hook/MCP installer with dry-run and backup support. The existing Codex hook
+command remains the default. Claude sessions are recognized by memory selection.
+
+Synthetic fixtures cover public text/tool capture, hidden-thinking exclusion,
+timestamps and UUID replay, partial lines, bounded capture, transcript rewrites,
+generated-summary exclusion, working-directory changes, session isolation,
+search/zoom, hook CLI JSON, invalid identities and empty startup transcripts.
+Installer fixtures cover separate settings/MCP files, retention of existing hooks
+and settings, idempotence, shell quoting, permissions, backups and conflicts.
+
+All 77 local tests passed (`uv run --frozen pytest -q`), Ruff passed on `src`,
+`tests` and `scripts`, and `git diff --check` passed. The installer dry-run against
+the existing local Claude settings found no conflicts and wrote no files. The
+pre-existing uncommitted summary-model evaluation runner was not modified.
+
+No Claude process, model call or subscription test was run. The installed runtime
+and live Claude settings were not changed. Supermemory injection remains untouched.
+Live hook execution, post-compaction model receipt and fork behavior remain pending
+until the user's Claude usage window resets. A prepared packet is not proof that
+Claude received it. The proxy and model-written memory tree remain separate work.
+
+The dated sections below retain earlier validation results.
 
 ## Version 0.3 follow-up
 

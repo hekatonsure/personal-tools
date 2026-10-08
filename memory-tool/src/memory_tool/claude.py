@@ -1,4 +1,4 @@
-"""Fresh Claude print sessions; existing auth stays intact, no bypass flags."""
+"""Native Claude transcript capture and optional fresh print-session gateway."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import sys
 import tempfile
 import uuid
 
-from .archive import digest
+from .archive import canonical, digest
 from .codex import MASTER
 from .packing import Tokens, checkpoint
 
@@ -20,14 +20,34 @@ def public_blocks(record):
     blocks = message.get("content", [])
     if isinstance(blocks, str):
         blocks = [{"type": "text", "text": blocks}]
-    return [b for b in blocks if b.get("type") not in {"thinking", "redacted_thinking"}]
+    return [
+        b
+        for b in blocks
+        if b.get("type") not in {"thinking", "redacted_thinking", "reasoning"}
+    ]
 
 
 def archive_stream(archive, chat, session, record):
     if record.get("type") not in {"user", "assistant"}:
         return []
     blocks = public_blocks(record)
-    saved = {"type": record["type"], "message": {"content": blocks}}
+    # Keep provenance, but never copy unfiltered message content or thinking fields.
+    saved = {
+        k: record[k]
+        for k in (
+            "type",
+            "uuid",
+            "sessionId",
+            "cwd",
+            "timestamp",
+            "parentUuid",
+            "isMeta",
+            "isCompactSummary",
+            "isSidechain",
+        )
+        if k in record
+    }
+    saved["message"] = {"content": blocks}
     for index, block in enumerate(blocks):
         kind = block.get("type")
         role = (
@@ -42,15 +62,110 @@ def archive_stream(archive, chat, session, record):
             if kind == "text"
             else json.dumps(block, ensure_ascii=False)
         )
+        if record.get("isCompactSummary") or (
+            kind == "text"
+            and "MEMORY-TOOL/v1" in text
+            and text.removeprefix("<system-reminder>")
+            .lstrip()
+            .startswith("Memory restored for project ")
+        ):
+            role = "generated_memory"
+        elif record.get("isMeta") and role == "user":
+            role = "developer"
         identity = (
             record.get("uuid")
             or record.get("message", {}).get("id")
             or digest(json.dumps(saved))
         )
         archive.append(
-            chat, role, text, f"claude:{session}:{identity}:{index}", json.dumps(saved)
+            chat,
+            role,
+            text,
+            f"claude:{session}:{identity}:{index}",
+            json.dumps(saved, ensure_ascii=False),
+            record.get("timestamp"),
         )
     return blocks
+
+
+def capture_transcript(archive, event, max_bytes=64 * 1024 * 1024):
+    """Capture native Claude JSONL locally; no Claude process or API is involved.
+
+    Claude has no session_meta header and cwd can change on every message. Anchor
+    the project to the first public record, then persist it across later hooks.
+    UUIDs make replay safe when compaction rewrites/truncates a transcript.
+    """
+    session = event["session_id"]
+    path = Path(event["transcript_path"]).resolve()
+    key = canonical(str(path))
+    archive.db.execute(
+        "CREATE TABLE IF NOT EXISTS claude_cursors("
+        "path TEXT PRIMARY KEY,session TEXT NOT NULL,project TEXT NOT NULL,"
+        "offset INTEGER NOT NULL,anchor TEXT NOT NULL)"
+    )
+    prior = archive.db.execute(
+        "SELECT * FROM claude_cursors WHERE path=?", (key,)
+    ).fetchone()
+    if prior and prior["session"] != session:
+        raise ValueError("Transcript cursor identity changed")
+    project = prior["project"] if prior else None
+    offset = prior["offset"] if prior else 0
+    observed = consumed = 0
+    with path.open("rb") as stream:
+        # Check the bytes at the cursor before trusting an append-only offset.
+        # Claude may replace its transcript at compaction; rescan UUIDs in that case.
+        stream.seek(max(0, offset - 256))
+        anchor = stream.read(min(offset, 256)).hex()
+        rescanned = bool(
+            prior and (path.stat().st_size < offset or anchor != prior["anchor"])
+        )
+        if rescanned:
+            offset = 0
+        stream.seek(offset)
+        while consumed < max_bytes:
+            line = stream.readline(min(8 * 1024 * 1024, max_bytes - consumed))
+            if not line or not line.endswith(b"\n"):
+                break
+            record = json.loads(line)
+            if record.get("type") in {"user", "assistant"}:
+                if record.get("sessionId") != session:
+                    raise ValueError("Transcript session identity mismatch")
+                cwd = record.get("cwd")
+                if not isinstance(cwd, str) or not Path(cwd).is_absolute():
+                    raise ValueError("Transcript record lacks absolute cwd")
+                if (
+                    not isinstance(record.get("timestamp"), str)
+                    or not record["timestamp"]
+                ):
+                    raise ValueError("Public transcript record lacks stable timestamp")
+                if not isinstance(record.get("uuid"), str) or not record["uuid"]:
+                    raise ValueError("Public transcript record lacks stable UUID")
+                if record.get("isSidechain"):
+                    raise ValueError("Expected main Claude transcript, not a sidechain")
+                project = project or canonical(cwd)
+                chat = archive.chat_for_project(project)
+                observed += len(archive_stream(archive, chat, session, record))
+            offset += len(line)
+            consumed += len(line)
+        stream.seek(max(0, offset - 256))
+        anchor = stream.read(min(offset, 256)).hex()
+    # An empty startup transcript has no verified identity yet. Don't persist a
+    # cursor until a public record establishes its project and session.
+    if project:
+        with archive.db:
+            archive.db.execute(
+                "INSERT INTO claude_cursors VALUES(?,?,?,?,?) ON CONFLICT(path) "
+                "DO UPDATE SET offset=excluded.offset,anchor=excluded.anchor",
+                (key, session, project, offset, anchor),
+            )
+    else:
+        offset = 0
+    return project or canonical(event["cwd"]), {
+        "observed_public_records": observed,
+        "offset": offset,
+        "backlog_bytes": max(0, path.stat().st_size - offset),
+        "rescanned": rescanned,
+    }
 
 
 def claude_command(model=None, tools="", mcp_config=None):

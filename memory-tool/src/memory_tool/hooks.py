@@ -1,4 +1,4 @@
-"""Native Codex lifecycle: local capture/checkpoint/restore, no model or network calls."""
+"""Native lifecycle capture/checkpoint/restore; optional background Jev labeling."""
 
 from __future__ import annotations
 
@@ -119,13 +119,23 @@ def capture_rollout(archive, chat, event, max_bytes=64 * 1024 * 1024):
     }
 
 
-def handle(archive: Archive, event, budget=24000, recent=8000, connectome=None):
+def handle(
+    archive: Archive, event, budget=24000, recent=8000, connectome=None, backend="codex"
+):
     kind = event.get("hook_event_name")
     if kind not in {"PreCompact", "SessionStart", "Stop", "UserPromptSubmit"}:
         return {"continue": True}
     project, session = event.get("cwd"), event.get("session_id")
     if not project or not Path(project).is_absolute() or not session:
         raise ValueError("Hook requires absolute cwd and session_id")
+    if backend not in {"codex", "claude"}:
+        raise ValueError("Unknown hook backend")
+    capture = {"backlog_bytes": None, "missing_transcript": True}
+    transcript = event.get("transcript_path")
+    if backend == "claude" and transcript and Path(transcript).exists():
+        from .claude import capture_transcript
+
+        project, capture = capture_transcript(archive, event)
     chat = archive.chat_for_project(project)
     if (
         kind in {"PreCompact", "SessionStart"}
@@ -133,9 +143,7 @@ def handle(archive: Archive, event, budget=24000, recent=8000, connectome=None):
         and Path(connectome).exists()
     ):
         archive.import_connectome(chat, connectome, project)
-    capture = {"backlog_bytes": None, "missing_transcript": True}
-    transcript = event.get("transcript_path")
-    if transcript and Path(transcript).exists():
+    if backend == "codex" and transcript and Path(transcript).exists():
         capture = capture_rollout(archive, chat, event)
     if kind == "Stop":
         from .labels import spawn_labeler
@@ -155,6 +163,7 @@ def handle(archive: Archive, event, budget=24000, recent=8000, connectome=None):
         archive, chat, budget=budget, recent_budget=recent, session=session
     )
     detail = {
+        "backend": backend,
         "checkpoint": checkpoint_id,
         **packet.metadata(),
         "capture": capture,

@@ -52,9 +52,9 @@ TOOLS = [
                 "event": {
                     "anyOf": [
                         {"type": "integer"},
-                        {"type": "string", "pattern": "^note:"},
+                        {"type": "string", "pattern": "^(note:|tree:)"},
                     ],
-                    "description": "Event number or note:<id> for a cited original note, including corrected versions.",
+                    "description": "Event number, note:<id>, or tree:<id>. Tree nodes expose child references down to exact source events.",
                 },
                 "offset": {"type": "integer"},
             },
