@@ -147,8 +147,10 @@ def handle(
         capture = capture_rollout(archive, chat, event)
     if kind == "Stop":
         from .labels import spawn_labeler
+        from .knowledge import sync_markdown
 
         # Labels for this turn are ready by the next restore; the hook never waits.
+        sync_markdown(archive, chat)
         spawn_labeler(archive, chat)
     if kind in {"Stop", "UserPromptSubmit"}:
         return {"continue": True}

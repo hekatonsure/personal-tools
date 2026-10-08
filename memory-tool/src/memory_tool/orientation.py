@@ -26,18 +26,37 @@ def substantive_reply(rows):
     Retain a short reply as fallback so concise outcomes still have a source.
     """
     replies = [r for r in rows if r["role"] == "assistant"]
-    informative = [
+    meaningful = [
         r
         for r in replies
-        if len(r["preview"].strip()) >= 80
+        if r["preview"].strip()
         and not re.match(
             r"(?:I[’']ll\b|I will\b|I[’']m (?:using|going to)\b|Let me\b)",
             r["preview"].strip(),
             re.I,
         )
+        and not re.fullmatch(
+            r"(?:you[’']re welcome|thanks|thank you|okay|ok|sure)[.!\s]*",
+            r["preview"].strip(),
+            re.I,
+        )
     ]
-    finals = [r for r in informative if r.get("phase") in {"final", "final_answer"}]
+    # A terse final correction must not lose to an older, longer success report.
+    finals = [r for r in meaningful if r.get("phase") in {"final", "final_answer"}]
+    informative = [r for r in meaningful if len(r["preview"].strip()) >= 80]
     return (finals or informative or replies or [None])[-1]
+
+
+def administrative_reply(row):
+    """Recognize a document handoff, without discarding its literal evidence."""
+    return bool(
+        re.match(
+            r"(?:I (?:have )?)?(?:updated|saved|wrote|archived|recorded|documented)\b"
+            r"[^\n]*(?:\.md\b|\b(?:notes|documentation|archive|checkpoint)\b)",
+            row["preview"].strip(),
+            re.I,
+        )
+    )
 
 
 def repository_root(project):
@@ -125,6 +144,23 @@ def startup_orientation(archive, chat, session, counter, budget, now=None):
                     "freshness": freshness(reply, now),
                     "excerpt": reply["preview"],
                 }
+                if administrative_reply(reply):
+                    previous = substantive_reply(
+                        [
+                            r
+                            for r in rows[: rows.index(reply)]
+                            if not administrative_reply(r)
+                        ]
+                    )
+                    if previous:
+                        # Keep the newest handoff as well: older evidence is not
+                        # a replacement for a later correction or completion.
+                        reference["preceding_reply"] = {
+                            "event": previous["id"],
+                            "ts": previous["ts"],
+                            "freshness": freshness(previous, now),
+                            "excerpt": previous["preview"],
+                        }
             if same_repo:
                 chosen = {r["id"]: r for r in [topic, users[-1]]}
                 reference["evidence"] = [

@@ -8,11 +8,12 @@ from collections import Counter
 from datetime import datetime, timezone
 
 from .evidence import query_words
+from .tool_output import searchable_output
 
 
-POLICY_VERSION = 6
+POLICY_VERSION = 8
 STATUS_TTL = 6 * 3600
-LABEL_VERSION = 1
+LABEL_VERSION = 3
 # Jev label probabilities that make an older event worth carrying. Below the
 # floor on all of them it is routine traffic; zoom and search still reach it.
 CONTENT_LABELS = ("decision", "user_constraint", "outcome", "failure", "plan")
@@ -28,7 +29,14 @@ def importance(row):
     if verdict(row) == "useful":
         return 1.0
     labels = row.get("labels")
-    return max(labels[k] for k in CONTENT_LABELS) if labels else None
+    if not labels:
+        return None
+    # Durable decisions survive mixed status prose. Plans/results alone do not
+    # earn permanent space merely because they describe an action or test run.
+    durable = max(labels.get(k, 0) for k in ("user_constraint", "durable"))
+    content = max(labels.get(k, 0) for k in CONTENT_LABELS)
+    lasting = (1 - labels.get("routine", 0)) * (1 - labels.get("transient_status", 0))
+    return max(durable, content * lasting)
 
 
 GENERIC = set(
@@ -277,11 +285,19 @@ def select_notes(notes, terms, session=None, now=None):
             continue
         score = relevance(note.get("text", ""), terms)
         same = bool(session and session_of(note) == session)
-        durable = note.get("memory_kind") == "preference"
+        preference = note.get("memory_kind") == "preference"
+        durable = preference or note.get("scope") == "project"
+        value = importance(note)
+        if verdict(note) in {"noise", "stale", "wrong"}:
+            omitted["feedback"] += 1
+            continue
+        if value is not None and value < LOW_VALUE and not preference:
+            omitted["low_value"] += 1
+            continue
         if session and session_of(note) and not same and not durable:
             omitted["other_session"] += 1
             continue
-        if terms and not score and not durable:
+        if terms and not score and not preference:
             omitted["off_topic"] += 1
             continue
         if session and session_of(note) and not same and not score and not durable:
@@ -292,8 +308,9 @@ def select_notes(notes, terms, session=None, now=None):
                 **note,
                 "freshness": state,
                 "_rank": (
-                    durable,
+                    preference,
                     score,
+                    value if value is not None else 0.5,
                     same,
                     note.get("type") == "pin",
                     timestamp(note.get("ts")) or 0,
@@ -348,15 +365,24 @@ def select_notes(notes, terms, session=None, now=None):
 
 def event_view(row, now=None):
     role, text = row["role"], row["text"]
+    original = text
+    if role == "tool_result":
+        text = image_free(
+            row["tool_view"] if "tool_view" in row else searchable_output(text)
+        )
     result = {
         "event": row["id"],
         "role": role,
         "ts": row["ts"],
-        "freshness": freshness(row, now),
+        "freshness": freshness({**row, "text": text}, now),
         **({"agent_feedback": row["feedback"]} if row.get("feedback") else {}),
     }
+    if text != original:
+        result["presentation"] = (
+            "decoded tool output; memory_zoom addresses the complete raw event"
+        )
     if role in {"tool_call", "tool_result"} and len(text) > 1600:
-        plain = unpack_text(text)
+        plain = text if role == "tool_result" else unpack_text(text)
         important = [
             line[:360]
             for line in plain.splitlines()

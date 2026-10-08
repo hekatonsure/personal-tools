@@ -18,13 +18,14 @@ from .retrieval import redact, typesafe_key
 from .selection import LABEL_VERSION, event_view
 
 LABELS = {
-    "decision": "Does this record a decision or choice that was made, or the reason for one?",
+    "decision": "Does this record a substantive choice about the project, design, requirements or approach, or its rationale? Exclude routine announcements about inspecting files, running tests, polling tools or writing a progress update.",
     "user_constraint": "Does a user state a requirement, preference, constraint or correction here?",
     "outcome": "Does this report a concrete result, such as a test outcome, a measurement or verified behaviour?",
     "failure": "Does this report an error, a failure or an approach that did not work?",
-    "plan": "Does this describe planned or pending work that is not done yet?",
+    "plan": "Does this record a substantive unresolved commitment or multi-step plan a later session needs? Exclude announcements of the next tool call or routine checking.",
     "transient_status": "Is this mainly about short-lived state, such as a running process, that will be stale within hours?",
     "routine": "Is this routine output or an acknowledgement with nothing a later reader would need to remember?",
+    "durable": "Does this contain a specific reusable finding, causal explanation, decision with rationale, correction, or enduring constraint that would change a future session's actions? Routine test counts, progress announcements, and current process state alone do not qualify.",
 }
 
 
@@ -71,7 +72,14 @@ def label_events(archive, chat, key=None, client=None, limit=2000, workers=12):
             "SELECT dup FROM labels WHERE version=?", (LABEL_VERSION,)
         )
     }
+    from .knowledge import label_key
+
     todo = {}
+    # Curated evidence gets a share before the much larger conversation archive.
+    for note in archive.active_notes(chat):
+        dup = label_key(note)
+        if dup not in done:
+            todo[dup] = {**note, "role": "curated_note", "ts": note.get("ts")}
     for row in reversed(archive.event_index(chat)):
         if row["dup"] not in done and row["dup"] not in todo:
             todo[row["dup"]] = row["id"]
@@ -80,7 +88,10 @@ def label_events(archive, chat, key=None, client=None, limit=2000, workers=12):
         # Chunks are saved as they finish, so an interrupted run keeps its work.
         for start in range(0, len(pending), 96):
             chunk = pending[start : start + 96]
-            payloads = [body(archive.event(chat, event)) for _, event in chunk]
+            payloads = [
+                body(event if isinstance(event, dict) else archive.event(chat, event))
+                for _, event in chunk
+            ]
             results = list(pool.map(lambda p: post(client or httpx, key, p), payloads))
             rows = []
             for (dup, event), data in zip(chunk, results):
@@ -126,10 +137,22 @@ def spawn_labeler(archive, chat, limit=500):
     lock = archive.path.with_name("labels.lock")
     if lock.exists() and time.time() - lock.stat().st_mtime < 900:
         return False
-    if not archive.db.execute(
-        "SELECT 1 FROM events e JOIN evidence_catalog c ON c.event=e.id LEFT JOIN labels l ON l.dup=c.dup AND l.version=? WHERE e.chat=? AND l.dup IS NULL AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') LIMIT 1",
-        (LABEL_VERSION, chat),
-    ).fetchone():
+    from .knowledge import label_key
+
+    pending_notes = any(
+        not archive.db.execute(
+            "SELECT 1 FROM labels WHERE dup=? AND version=?",
+            (label_key(n), LABEL_VERSION),
+        ).fetchone()
+        for n in archive.active_notes(chat)
+    )
+    if (
+        not pending_notes
+        and not archive.db.execute(
+            "SELECT 1 FROM events e JOIN evidence_catalog c ON c.event=e.id LEFT JOIN labels l ON l.dup=c.dup AND l.version=? WHERE e.chat=? AND l.dup IS NULL AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') LIMIT 1",
+            (LABEL_VERSION, chat),
+        ).fetchone()
+    ):
         return False
     command = [sys.executable, "-c", "from memory_tool.cli import main; main()"]
     command += ["--db", str(archive.path), "label", "--chat", chat]

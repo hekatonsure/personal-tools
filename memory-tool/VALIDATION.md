@@ -1,5 +1,268 @@
 # Validation
 
+## Active salience scoring fix — 2026-10-08, 21:11 UTC
+
+The standing authorization now names memory-tool in both Codex AGENTS.md and
+Claude CLAUDE.md. Automatic review accepted the minimal addition to the existing
+named-tool list; no further authorization is pending.
+
+A live Jev probe found routine next-action prose scored 0.60 as a decision.
+Label policy **3** narrows the decision question and discounts generic decisions,
+outcomes and plans by both routine and transient scores. Durable findings and
+user constraints retain their score. Eight live examples passed after the fix.
+A separate live tree probe recovered the WAL note with no lexical matches using
+six branch judgments plus one source judgment (3,301 input tokens).
+
+**260 tests passed**, Ruff and diff checks passed. Private-copy Jev validation
+labeled 100 records, preserved original event fingerprints, and returned source
+hits for three queries in 0.29–0.38 s. These are focused probes, not comprehensive
+recall/precision benchmarks. The live archive then received 800 policy-3 labels;
+2,630 records remained for bounded background batches at that check.
+
+Current ordinary launcher and MCP registration use
+`runtimes/20261008-salience` with `--jev`. This package preserves the other
+session's startup refinements; only selection.py and labels.py differ from
+`20261008-startup-salience`. Fresh MCP search used Jev and exposed all six tools.
+The daemon accepted reload, process inspection showed both MCP servers on the new
+runtime, and this chat's MCP status verified policy 8, shared note search and Jev
+tree navigation. No user restart is required for the checked connections.
+
+Evidence/rollback: `deployments/20261008-salience/` contains `bridge.json`,
+`previous-cli.py`, `previous-config.toml`, `activation-before.sqlite`,
+`live-validation.json`, `live-branch-probe.json`, `activated-mcp.json`, and
+`reload.json`. Restore the previous bridge/MCP path for rollback; never replace
+the live archive with an older database. Proxy and hook definitions were preserved.
+Earlier deployment sections below are dated historical checkpoints.
+
+## Activated — 2026-10-08
+
+At the user's explicit request, activated the previously tested
+`20261008-startup-salience` runtime. The ordinary launcher now dispatches there;
+Codex's `memory_tool` MCP registration also points directly to that runtime.
+The daemon accepted `config/mcpServer/reload`. A subsequent call through this
+chat's actual MCP connection reported policy 8 and 512 indexed notes, confirming
+the live connection switched. A 6k-budget restore check selected five notes
+and used 3,670 tokens.
+
+Fresh MCP smoke verification through the ordinary launcher exposed all six tools,
+reported selection policy 8, and returned nine search hits including five notes.
+Live indexing registered the repository's `md_archive` and Connectome `notes.jsonl`;
+both scans completed without errors. Packaged Python sources still match the
+260-test checkout. After the user explicitly extended standing authorization to
+memory-tool's private-memory TypeSafe requests, enabled MCP `--jev` and automatic
+background labeling. This chat's actual MCP status now reports
+`jev_tree_navigation: true`; a live query returned `mode: jev`, no error, 11 hits,
+12 provider requests and 7,463 reported input tokens. A backup query also passed
+(12 requests / 7,319 input tokens). These verify operation, not comprehensive
+ranking quality; an observed top hit described the symptom rather than its cause.
+Initial labeling processed 600 records (494,485 reported input tokens), leaving
+2,764 for subsequent bounded background batches. The temporary local-only guard
+was removed after the explicit authorization; earlier review rejections are resolved.
+
+Rollback artifacts in `deployments/20261008-startup-salience`: `previous-cli.py`,
+`bridge.json`, `config-before.toml`, `pre-activation.sqlite`, and `reload.json`.
+`config-before-jev.toml` preserves the intermediate local-ranking registration.
+To roll back, restore the prior launcher bridge and the previous MCP executable
+path, then request reload; do not replace the live archive with the backup.
+The HTTP proxy and hook definitions were not changed.
+
+## Startup findings and short corrections — 2026-10-08
+
+Startup reply selection no longer drops a short final correction in favor of an
+older long result. Documentation handoffs keep their latest literal reply and
+can include a separately dated preceding substantive reply. This is a local
+presentation heuristic, not semantic reconciliation or proof of current status.
+
+- **260 tests passed**, including two new regressions; Ruff and diff checks pass.
+- Local SQLite backup replay recovered event **6379** alongside documentation
+  handoff **6403**: the former records the unresolved diagnostic echoes and
+  cluttered restored context that the latter omitted. All five session references
+  survived; packet size increased from **3,408 to 3,525 tokens**. Original event
+  fingerprints matched and SQLite integrity was `ok`.
+- Source changes are staged for deployment with the previous shared-note work.
+  Live TypeSafe ranking and launcher activation remain pending the explicit
+  private-memory export authorization requested in this session. The existing
+  runtime and proxy were not changed.
+- Built an offline wheel and isolated runtime at
+  `~/.local/share/memory-tool/runtimes/20261008-startup-salience/`. Packaged Python
+  sources match the tested checkout and its launcher reproduced the 3,525-token
+  replay packet. The ordinary launcher still points to `20261008-db-lock`.
+
+Private replay script, SQLite copy, before/after packets and measured results:
+`~/.local/share/memory-tool/deployments/20261008-startup-salience/`.
+
+## Shared note salience — 2026-10-08
+
+Implemented shared note/event search, immutable Markdown section snapshots with
+revision heads, explicit legacy note imports, native `memory_note`, source-linked
+`note:` / `tree:knowledge-` zoom, note feedback and expiry, durable Jev label v3,
+routine-result demotion, and bounded Jev note-tree navigation when lexical matches
+are sparse. Existing chronological proxy summaries remain separate. Autonomous
+fact extraction and semantic contradiction reconciliation are not implemented.
+
+- Baseline: **247 tests passed** with loopback socket access. Updated suite:
+  **260 tests passed**; Ruff and diff checks passed. Tests cover revised/deleted
+  files, old-tree/source recovery, project isolation, unscoped legacy imports,
+  explicit corrections, conflicting notes, expiry/feedback, sparse lexical recall
+  through mocked Jev traversal, cache reuse and provider failure fallback.
+- Local replay of a SQLite-aware live-archive backup imported **508 current
+  notes** from this repository's `md_archive` and explicitly registered legacy
+  Connectome notes into the home chat. A 6k-budget new-session packet focused on
+  memory/retrieval selected five notes and used **3,560 tokens**; build time
+  **0.39 s**. Three local queries returned 9–10 hits in **0.05–0.16 s**; each hit
+  zoomed successfully. Original event fingerprints were unchanged; SQLite
+  integrity check returned `ok`. These are integration checks, not measured
+  semantic-recall improvements.
+- An isolated installed wheel exposed all six MCP tools and returned ten local
+  search hits. Runtime staged at
+  `~/.local/share/memory-tool/runtimes/20261008-salience` with locked dependencies.
+  At this checkpoint the ordinary launcher still uses the previous runtime.
+- At that earlier checkpoint, live Jev evaluation and activation were pending approval (now resolved above):
+  automatic approval review rejected sending private archive excerpts directly
+  to TypeSafe, distinguishing this from the standing `jg`/`session-search`
+  authorization. No private archive export was performed by this evaluation.
+
+Private backup, replay script/results, restored packet, wheel and MCP smoke results:
+`~/.local/share/memory-tool/deployments/20261008-salience/`.
+Pre-change checkout backup: `/tmp/memory-salience-before/checkout.tgz`.
+
+## Concurrent search and credential repair: 2026-10-08
+
+Live MCP search and feedback returned `database is locked`, while exact zoom
+worked. SQLite integrity was `ok` and another connection could acquire the writer
+lock. A deterministic two-connection test reproduced the failure: search kept an
+FTS cursor/read snapshot open, another writer committed, then a decoded-output
+cache miss tried to upgrade the stale snapshot. Increasing the busy timeout would
+not resolve this WAL snapshot conflict. Failed lazy writes also left a transaction
+open on the long-lived MCP connection.
+
+Search now fetches its rows before lazy cache writes. Standalone cache writes use
+a transaction context that commits on success and rolls back on failure; existing
+append transactions retain ownership. Both new regressions failed before the fix
+and pass afterward. **247 tests passed**, plus Ruff and diff checks.
+
+A SQLite backup of the real archive passed three search replays with **1,863
+interleaved commits** from a second connection after clearing only its derived
+tool-output cache. Events, provenance, notes and feedback fingerprints remained
+unchanged; integrity stayed `ok`, and packaged Python sources match the checkout.
+The normal installed launcher successfully searched the live database. This
+chat's MCP search and feedback subsequently succeeded too.
+
+Installed runtime: `~/.local/share/memory-tool/runtimes/20261008-db-lock/`.
+Evidence, archive snapshot, exact locked dependencies, wheel, `validation.json`,
+and rollback `previous-cli.py`/`bridge.json` are in the matching `deployments/`
+directory. Restore the previous bridge to the recorded `old_entry_module` to
+roll back routing; never replace the live archive with the snapshot. The proxy
+continues on its original runtime. Hook definitions and Codex config are unchanged.
+The current Codex daemon accepted `config/mcpServer/reload`; refresh is queued
+for the next turn. The current turn still used the prior MCP process, recovered
+after cache warming, so its successful calls alone do not prove the new runtime
+was loaded in that connection.
+
+The separate `session-search` tool now falls back from `TYPESAFE_API_KEY` to
+Jevgrep's saved **direct TypeSafe** credential, respecting XDG config location.
+It rejects credentials for other providers and reports setup errors without
+printing secrets. Its editable installation immediately picked up the fix:
+**22 tests passed**, and a fresh real search made 13 authenticated requests
+(48,498 input tokens, reported $0.0020). The existing key was reused without
+copying it into shell configuration. README and linked skill instructions match.
+
+## Restored packets and cached tool views: 2026-10-08
+
+Policy 7 / catalog 7 applies decoded tool-output presentation to recent events
+and older tree previews, groups equivalent transport copies without combining
+different feedback, and omits retrieval-only calls and collaboration scaffolding
+from restored packets. Printed Python hits, query/tuple replay batches and
+raw/view-length debug dumps no longer replay their copied answers. Fresh failures,
+including traceback/exception boundaries within a diagnostic leaf, survive.
+Expiry now evaluates the cleaned result: copied old process status cannot expire
+an unrelated failure in the same event. Exact originals remain available by zoom.
+
+Versioned SQLite `tool_output_views` persist decoded text across searches and
+process restarts. Missing entries from older writers are populated lazily. The
+cache does not change stored duplicate identities, labels or feedback, and writes
+participate in an enclosing append transaction. Catalog migration invalidates
+old derived tree excerpts; the selection policy also changes their cache identity.
+
+Baseline **238 tests passed**; final **245 tests passed**, with seven additional
+regressions covering diagnostic filtering, recent/tree presentation and grouping,
+independent feedback, restart reuse, old-writer backfill, version invalidation,
+transaction rollback and status expiry. Full tests used local loopback permission.
+Ruff and diff checks passed. Installed Python sources match the tested checkout.
+
+A fixed SQLite backup replayed four queries and the prior session's 24k/8k
+restored packet. Event/provenance/note/feedback fingerprints stayed unchanged.
+The `bc9bcaf` search no longer returns diagnostic copies 6296, 6230 or 6210;
+6011/5930 remain, as do summary-tree implementation 1121 and spreadsheet outcome
+1742 in their queries. Event 6210 retains its fresh AssertionError and 6296 its
+fresh test success. The restored packet shrank from **20,698 to 14,665 tokens**,
+with `chunk_id` occurrences falling from **54 to zero**. Four warm searches took
+1.50 seconds before, 0.66 seconds in the checkout and 0.40 seconds in the package.
+The one-time migration/cache fill took 1.06–1.97 seconds; reopening the packaged
+archive took 0.004 seconds. These are local samples, not a general latency or
+retrieval-quality benchmark. Packet construction remained below 0.25 seconds.
+
+Installed runtime: `~/.local/share/memory-tool/runtimes/20261008-packet-noise/`.
+The ordinary launcher passed search and packet smoke checks through the bridge.
+Evidence, wheel, backup and `previous-cli.py` for rollback are in
+`~/.local/share/memory-tool/deployments/20261008-packet-noise/`. Restore that bridge
+file to `old_entry_module` in `bridge.json` to retarget new processes to the prior
+runtime; do not restore the old archive over newer records. Existing MCP processes
+need reconnect. The running proxy, hooks, trust records and Codex config were
+not changed. Exact locked dependencies came from local cache; their existing
+September/October versions required overriding uv's older exclude-newer cutoff.
+
+Remaining limits: arbitrary prose/code and differently shaped diagnostic reports
+can still rank as source evidence (including copied reports in 6365); this is not
+complete semantic deduplication. Fresh code listings may outrank direct answers
+for exact-token queries. Startup can still select a final archive-note update
+instead of the preceding outcome/remaining-work reply; missing feedback records
+that observation. No new live native-compaction receipt test is claimed.
+
+## Nested tool-output search views: 2026-10-08
+
+The previous noise fix was incomplete. Live search still surfaced startup probe
+references, escaped native/proxy copies of the same command output, and nested
+session-search results. Catalog 6 classifies recognized copied leaves separately
+from fresh results in the same batch. Search decodes known tool transports,
+retains exit/error metadata, groups equivalent decoded outputs and labels the
+displayed excerpt separately from its exact raw-event pointer. Raw events,
+provenance, notes, feedback and zoom bytes stay unchanged.
+
+**238 tests passed**, including nine new tests for mixed startup probes,
+native/proxy duplicates, fresh failures beside retrieval echoes, code discussing
+the schema, status and literal backslash preservation, catalog upgrades, printed
+diagnostic replays, session-search results following progress, JSONL transports,
+and malformed blocks. Ruff and diff checks pass. Socket tests require loopback
+access; the sandbox-only full run failed at socket creation before exercising
+those tests. The final full run with loopback access passed.
+
+Three queries were replayed against an independent SQLite backup with the old
+runtime and the packaged candidate. The original latest installation answer,
+summary-tree implementation and spreadsheet archive result remain retrievable.
+Events 6011/5929 now group into one readable command result. Startup/reference
+and diagnostic copies are omitted within mixed batches while fresh source
+listings and failures remain. Immutable tables compare byte for byte. This
+sample took 0.763 seconds on the old runtime and 3.394 seconds on the final
+package, including archive open/reclassification and all three searches; decoding
+adds work, and this is not a general latency benchmark. Unknown/damaged wrappers
+and arbitrary generated prose may still appear.
+
+Installed runtime: `~/.local/share/memory-tool/runtimes/20261008-tool-output/`.
+The normal launcher passed a search smoke check through the updated bridge.
+Evidence, wheel, archive backup and previous bridge are in
+`~/.local/share/memory-tool/deployments/20261008-tool-output/`. Existing MCP
+processes need reconnect/restart; new launches use the fix. The proxy service,
+hook definitions and Codex config were not changed by this runtime upgrade.
+
+The separate session-search stall was sandbox network access: with explicitly
+authorized provider access its real query ranked in 0.41 seconds, after a
+0.68-second index update. No session-search code changed. The user explicitly
+approved permanent `jg`/`session-search` access, including queries and relevant
+source/session excerpts to `api.typesafe.ai`. Global prefix rules and AGENTS.md
+authorization were installed and verified; permission-file backups are in
+`~/.codex/backups/search-permissions-20261008T173501Z/`.
+
 ## Search repetition and startup outcomes: 2026-10-07
 
 Checkpointed all preceding memory work as `450f12f` before editing. Baseline:

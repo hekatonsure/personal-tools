@@ -2,8 +2,9 @@
 
 import json
 import re
+from .tool_output import searchable_output
 
-CATALOG_VERSION = 5
+CATALOG_VERSION = 7
 HARNESS_PREFIXES = (
     "# AGENTS.md instructions",
     "<environment_context>",
@@ -11,6 +12,7 @@ HARNESS_PREFIXES = (
     "<turn_aborted>",
     "<multi_agent_mode>",
     "<multi_agent_role>",
+    "<collaboration_mode>",
     "<apps_instructions>",
     "You are `/root`, the primary agent",
     "[connectome memory checkpoint",
@@ -71,7 +73,7 @@ def retrieval_request(text):
     )
 
 
-def source_kind(role, text):
+def source_kind(role, text, tool_view=None):
     if role == "tool_call" and retrieval_request(text):
         return "retrieval_call"
     if role == "generated_memory" or (
@@ -127,21 +129,11 @@ def source_kind(role, text):
         or len(re.findall(r"(?m)^\[\d+\] (?:user|assistant|tool)", text)) >= 3
     ):
         return "transcript_replay"
-    # Search/zoom output is a copy of earlier evidence. It remains reachable by ID.
-    # Remove escaping for classification only; never alter the source or zoom offsets.
-    plain = re.sub(r"\\+", "", text)
-    if role == "tool_result" and (
-        (
-            '"hits"' in plain
-            and '"evidence"' in plain
-            and ('"candidates"' in plain or '"usage"' in plain)
-        )
-        or ('"next_offset"' in plain and '"event"' in plain and '"text"' in plain)
-        or all(key in plain for key in ('"event":', '"offset":', '"score":', '"text":'))
-        or all(
-            key in plain
-            for key in ('"source_events":', '"agent_feedback":', '"native_recovery":')
-        )
+    # Classify leaves, not a flattened batch: a search echo can sit beside a new
+    # failure or test result that must remain available as source evidence.
+    if (
+        role == "tool_result"
+        and not (searchable_output(text) if tool_view is None else tool_view).strip()
     ):
         return "retrieval_echo"
     return "tool_call" if role == "tool_call" else "source"

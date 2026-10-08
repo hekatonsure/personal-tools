@@ -91,9 +91,10 @@ project uses the configured default. Different projects cannot zoom each other's
 
 Restart/reconnect MCP servers if a new registration is not visible in the existing
 client. Tools: `memory_status`, `memory_search`, `memory_zoom`, `memory_feedback`,
-`memory_checkpoint`.
+`memory_note`, `memory_checkpoint`.
 On Windows, an absolute launcher path from `uv tool dir --bin` avoids stale app PATH state.
-There is no active memo tool. With `--connectome`, retrieval refreshes from its local
+`memory_note` saves source-linked project findings, decisions, preferences and
+commitments; status notes require an expiry. With `--connectome`, retrieval refreshes from its local
 public archive. Existing Connectome hooks/observer capture native chats; gateway
 capture needs no Connectome. Native [MCP configuration](https://learn.chatgpt.com/docs/extend/mcp)
 supports per-server and per-tool approval policies.
@@ -152,6 +153,9 @@ with dated task/outcome excerpts; up to five recent topics from other locations
 follow with literal reply excerpts too. Identical full opening requests within
 one project share a slot, with a related-session count. Final-answer metadata is
 preferred over progress updates; otherwise a recent informative reply is used.
+Short final corrections remain eligible even after a longer success report.
+When a final reply hands off documentation, a preceding substantive reply can
+accompany it with its own date and source ID; the latest reply remains visible.
 A fuller related conversation may supply an additional dated reply, without
 claiming it overrides the newest session. Explicit disposable smoke tests are
 fallback entries. These are presentation heuristics, not proof of completion.
@@ -433,6 +437,15 @@ agent can be wrong, so its verdicts annotate rather than delete.
 
 ### Selection, dates and corrections
 
+Policy 8 uses the same decoded tool-output views for recent restoration and older
+tree previews as for search. Equivalent transport copies share a packet slot;
+different feedback remains separate. Retrieval-only calls and collaboration-mode
+scaffolding are omitted from restoration, while raw event zoom stays exact.
+Versioned `tool_output_views` cache decoded text in SQLite across processes, avoiding
+repeated parsing. Catalog 7 recognizes printed Python search hits and diagnostic
+replay batches; mixed new failures remain evidence. These are presentation rules,
+not a general classifier for arbitrary copied prose or code.
+
 Restoration favors literal topic matches from recent substantive user messages,
 current-session notes, and explicitly marked durable preferences. Relevance comes
 before pin status. Other chats' events stay available through project-scoped
@@ -479,9 +492,19 @@ the 24-candidate limit, so repeated prompts cannot exhaust a window shortlist.
 Work scales with matching archive content; this finite result shortlist can still
 miss relevant evidence. No model calls are needed for these local policies.
 
+Catalog 6 decodes known nested tool transports for search presentation and removes
+recognized copied search results, startup references and diagnostic event replays
+within each batch. Fresh errors and test results in the same batch remain visible.
+Decoded results carry an explicit `presentation` label: their `offset: 0` points
+to the complete raw event, not to a character in the displayed excerpt. Matching
+decoded tool documents share a slot and retain bounded pointers to their copies.
+Unknown or damaged transport formats remain visible; this is not a guarantee
+that all generated text or truncated logs are identified as copies.
+
 Older history uses cached binary-tree literal excerpts, not generative summaries.
 Each node keeps 4 excerpts and widens to 8, 16 or 32 while the whole tree still fits
-the packet budget. They may omit important facts. Search returns overlapping original windows; zoom
+the packet budget. They may omit important facts. Search returns original windows
+or labeled decoded tool excerpts; zoom
 returns exact character pages and `next_offset`. Large recent tool outputs use
 literal head/error/result/tail excerpts plus an exact zoom pointer; they are not
 promised verbatim within the 8k allowance. Replayed native events collapse while every
@@ -511,11 +534,56 @@ come from `TYPESAFE_API_KEY` or its existing Windows user environment value. At 
 no automatic retries, local fallback. Redaction is best-effort; enabling Jev exports
 candidate conversation excerpts. Plain retrieval and packing stay local.
 
+### Shared lasting notes and tree navigation
+
+Native packing and search index the current project's `md_archive/*.md` (including
+subdirectories). Register additional directories or legacy Connectome JSONL notes
+explicitly inside that project:
+
+```bash
+memory-tool index-notes --chat home --source /home/hek/personal-tools/memory-tool/md_archive
+memory-tool index-notes --chat home --source /home/hek/.codex/connectome/notes.jsonl
+```
+
+Registered sources refresh locally on search, packing and Stop. Markdown becomes
+literal section snapshots with file path, revision hash, line and character
+offset. Changed or removed files update the current document view; old notes and
+tree references stay zoomable. Source files are never edited. Legacy `{ts,type,text}`
+notes lacking IDs/project metadata can be imported into the explicitly chosen
+chat; they are not automatically copied into every project.
+
+`memory_note` writes concise project notes with optional event/note/tree source
+references. Explicit `supersedes` IDs retire prior notes from current selection;
+independent conflicting notes remain separate. Note feedback supports `note:<id>`.
+Ordinary search now reserves shortlist space for notes alongside events. Note
+excerpts point to exact JSON records through `memory_zoom`; native restoration
+also supplies a balanced `tree:knowledge-…` root with children leading to notes.
+These are current-note trees, separate from the proxy's chronological summary tree.
+
+With `serve --jev` or `search --jev`, sparse keyword note matches trigger bounded
+Jev-guided note-tree traversal: at most 16 branch judgments and 12 final passage
+judgments by default, cached for 24 hours. Branches are navigation hints, never
+answers; returned hits refer to source notes/events. Literal search remains
+available if summaries miss a concept, the call budget runs out or Jev fails.
+This adds concept-based recall without claiming complete semantic coverage.
+
+Imports are bounded to 128 Markdown files, 256 KiB per file, 4 MiB total, and
+1 MiB per registered legacy JSONL. Symlinks outside the source/project are skipped.
+Scan failures/limits are reported; an incomplete scan never retires missing files.
+Hooks and packing do not call models synchronously. Jev uses the environment key
+or saved **direct TypeSafe** Jevgrep credential (custom/gateway credentials are
+excluded). Enabling ranking/background labeling sends redacted excerpts to
+`api.typesafe.ai`; `MEMORY_TOOL_AUTO_LABEL=0` disables background labeling.
+
+This stage does not automatically extract facts from all conversations or resolve
+semantic contradictions. File revisions and explicit corrections are supported;
+autonomous reconciliation and topic embeddings remain future work.
+
 ### Named label vectors
 
-`memory-tool label --chat my-master [--limit 2000]` asks Jev seven `noul`
-questions about each unique document (newest first): `decision`, `user_constraint`,
-`outcome`, `failure`, `plan`, `transient_status`, `routine`. Each probability has a
+`memory-tool label --chat my-master [--limit 2000]` asks Jev eight `noul`
+questions about each unique document (notes first, then newest events): `decision`, `user_constraint`,
+`outcome`, `failure`, `plan`, `transient_status`, `routine`, `durable`. Each probability has a
 name, so selection can say why it kept an event. Vectors are cached per duplicate
 key, so replayed copies cost nothing. Labeling is automatic: when unlabeled documents
 exist and a TypeSafe key is available, the `Stop` hook starts a detached labeler
@@ -524,9 +592,12 @@ archive allows one labeler at a time; output goes to `labels.log`. Set
 `MEMORY_TOOL_AUTO_LABEL=0` to disable. Hooks and packing only read the cache and
 make no network calls themselves. Unlabeled events keep keyword selection.
 
-With labels, older history omits events whose content labels (`decision`,
-`user_constraint`, `outcome`, `failure`, `plan`) are all below 0.25. Tree excerpts
-rank by the highest of those labels. Assistant/user turns with `decision` or
+Label policy 3 favors reusable findings, causal explanations and lasting decisions.
+Routine and transient scores discount plans, outcomes, failures and generic
+decisions; constraints and durable findings retain their score in mixed prose.
+Older history and notes below 0.25 are omitted from restoration. Routine event
+matches also rank later in local search. Tree excerpts rank by this importance
+without reserving slots merely for the first/last event. Assistant/user turns with `decision` or
 `user_constraint` of at least 0.5 join the continuity reserve. On an 83-session
 private archive, labeling 4,084 documents took 77 s and 3.1M input tokens (about
 $0.13). Older-history mean importance rose from 0.69 to 0.81, with no excerpts

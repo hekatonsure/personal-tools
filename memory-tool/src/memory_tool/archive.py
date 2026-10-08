@@ -1,8 +1,10 @@
 from __future__ import annotations
 import hashlib, json, os, sqlite3, time, uuid
+from contextlib import nullcontext
 from pathlib import Path
 from .evidence import CATALOG_VERSION, decision_question, query_words, source_kind
 from .selection import LABEL_VERSION, duplicate_key, freshness, image_free, normalized
+from .tool_output import VIEW_VERSION, excerpt, searchable_output
 
 
 FEEDBACK = ("useful", "noise", "stale", "wrong", "missing")
@@ -50,7 +52,11 @@ class Archive:
         CREATE TABLE IF NOT EXISTS labels(dup TEXT PRIMARY KEY,version INTEGER NOT NULL,vector TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS feedback(chat TEXT NOT NULL,dup TEXT,event INTEGER,verdict TEXT NOT NULL,note TEXT NOT NULL,ts REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS feedback_dup ON feedback(chat,dup,ts);
+        CREATE TABLE IF NOT EXISTS tool_output_views(event INTEGER PRIMARY KEY,version INTEGER NOT NULL,text TEXT NOT NULL);
         """)
+        from .knowledge import setup
+
+        setup(self)
         # Derived metadata can evolve without modifying immutable public events.
         with self.db:
             version = self.db.execute(
@@ -75,13 +81,20 @@ class Archive:
                 "SELECT e.id,e.role,e.ts,e.text FROM events e LEFT JOIN evidence_catalog c ON c.event=e.id WHERE c.event IS NULL OR e.id>?",
                 (watermark[0] if watermark else 0,),
             ).fetchall()
-            self.db.executemany(
-                "INSERT OR REPLACE INTO evidence_catalog VALUES(?,?,?)",
-                [
-                    (r["id"], source_kind(r["role"], r["text"]), duplicate_key(dict(r)))
-                    for r in missing
-                ],
-            )
+            for r in missing:
+                view = (
+                    self.tool_output(r["id"], r["text"])
+                    if r["role"] == "tool_result"
+                    else None
+                )
+                self.db.execute(
+                    "INSERT OR REPLACE INTO evidence_catalog VALUES(?,?,?)",
+                    (
+                        r["id"],
+                        source_kind(r["role"], r["text"], view),
+                        duplicate_key(dict(r)),
+                    ),
+                )
             if missing:
                 self.db.execute("DELETE FROM nodes")
                 self.db.execute(
@@ -91,6 +104,27 @@ class Archive:
 
     def close(self):
         self.db.close()
+
+    def tool_output(self, event, text=None):
+        """Versioned derived presentation; originals and feedback identities stay exact."""
+        cached = self.db.execute(
+            "SELECT text FROM tool_output_views WHERE event=? AND version=?",
+            (event, VIEW_VERSION),
+        ).fetchone()
+        if cached:
+            return cached[0]
+        if text is None:
+            text = self.db.execute(
+                "SELECT text FROM events WHERE id=?", (event,)
+            ).fetchone()[0]
+        view = searchable_output(text)
+        # Commit lazy reads, but never commit the caller's append transaction.
+        with self.db if not self.db.in_transaction else nullcontext():
+            self.db.execute(
+                "INSERT OR REPLACE INTO tool_output_views VALUES(?,?,?)",
+                (event, VIEW_VERSION, view),
+            )
+        return view
 
     def register(self, chat: str, project: str):
         row = self.db.execute(
@@ -156,7 +190,13 @@ class Archive:
                 "INSERT INTO evidence_catalog VALUES(?,?,?)",
                 (
                     event,
-                    source_kind(role, text),
+                    source_kind(
+                        role,
+                        text,
+                        self.tool_output(event, text)
+                        if role == "tool_result"
+                        else None,
+                    ),
                     duplicate_key({"role": role, "ts": ts, "text": text}),
                 ),
             )
@@ -179,17 +219,24 @@ class Archive:
         ]
 
     def event_index(self, chat: str):
-        return [
-            {
-                **r,
-                "preview": image_free(r["preview"]),
-                "labels": json.loads(r["labels"]) if r["labels"] else None,
-            }
-            for r in self.db.execute(
-                f"SELECT id,role,ts,source,c.kind,c.dup,substr(text,1,480) AS preview,CASE WHEN role='assistant' AND json_valid(raw) THEN coalesce(json_extract(raw,'$.payload.phase'),json_extract(raw,'$.phase'),json_extract(raw,'$.payload.channel'),json_extract(raw,'$.channel')) END AS phase,l.vector AS labels,{LATEST_FEEDBACK} FROM events e JOIN evidence_catalog c ON c.event=e.id LEFT JOIN labels l ON l.dup=c.dup AND l.version=? WHERE chat=? AND c.kind NOT IN ('generated','snapshot_summary','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY id",
-                (LABEL_VERSION, chat),
-            )
-        ]
+        rows = self.db.execute(
+            f"SELECT id,role,ts,source,c.kind,c.dup,substr(text,1,480) AS preview,CASE WHEN role='assistant' AND json_valid(raw) THEN coalesce(json_extract(raw,'$.payload.phase'),json_extract(raw,'$.phase'),json_extract(raw,'$.payload.channel'),json_extract(raw,'$.channel')) END AS phase,l.vector AS labels,{LATEST_FEEDBACK} FROM events e JOIN evidence_catalog c ON c.event=e.id LEFT JOIN labels l ON l.dup=c.dup AND l.version=? WHERE chat=? AND c.kind NOT IN ('generated','snapshot_summary','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY id",
+            (LABEL_VERSION, chat),
+        ).fetchall()
+        result = []
+        for record in rows:
+            r = dict(record)
+            if r["role"] == "tool_result":
+                view = self.tool_output(r["id"])
+                if not view.strip():
+                    continue
+                r["preview"] = image_free(view)[:480]
+                r["presentation_dup"] = digest(json.dumps([view, r["feedback"]]))
+            else:
+                r["preview"] = image_free(r["preview"])
+            r["labels"] = json.loads(r["labels"]) if r["labels"] else None
+            result.append(r)
+        return result
 
     def add_feedback(self, chat: str, verdict: str, note: str = "", event=None):
         """Agent judgment on a memory record. It annotates selection; evidence is unchanged."""
@@ -202,10 +249,14 @@ class Archive:
             dup = event = None
         else:
             assert event is not None, f"{verdict} feedback needs an event"
-            self.event(chat, event)
-            dup = self.db.execute(
-                "SELECT dup FROM evidence_catalog WHERE event=?", (event,)
-            ).fetchone()[0]
+            if isinstance(event, str) and event.startswith("note:"):
+                self.zoom(chat, event)
+                dup = event
+            else:
+                self.event(chat, event)
+                dup = self.db.execute(
+                    "SELECT dup FROM evidence_catalog WHERE event=?", (event,)
+                ).fetchone()[0]
         with self.db:
             self.db.execute(
                 "INSERT INTO feedback VALUES(?,?,?,?,?,?)",
@@ -254,7 +305,14 @@ class Archive:
 
         if not 128 <= budget <= 8000:
             raise ValueError("Zoom budget must be 128..8000 tokens")
-        if isinstance(event, str) and event.startswith("tree:"):
+        if isinstance(event, str) and event.startswith("tree:knowledge-"):
+            from .knowledge import tree_zoom
+
+            row = {
+                "role": "derived_note_tree",
+                "text": tree_zoom(self, chat, event[5:]),
+            }
+        elif isinstance(event, str) and event.startswith("tree:"):
             from .summary_tree import zoom_text
 
             row = {"role": "derived_summary", "text": zoom_text(self, chat, event[5:])}
@@ -313,9 +371,12 @@ class Archive:
             return []
         match = " OR ".join('"' + w.replace('"', '""') + '"' for w in words)
         rows = self.db.execute(
-            f"SELECT p.*,e.role,e.ts,e.source,c.kind,c.dup,{LATEST_FEEDBACK},bm25(passages) AS rank FROM passages p JOIN events e ON e.id=p.event JOIN evidence_catalog c ON c.event=e.id WHERE passages MATCH ? AND p.chat=? AND c.kind NOT IN ('generated','snapshot_summary','transcript_replay','retrieval_echo','retrieval_call','scaffolding','review_metadata') ORDER BY (e.role='tool_call'),(? AND e.role NOT IN ('user','assistant')),rank,e.id,p.start",
-            (match, chat, decision_question(query)),
-        )
+            f"SELECT p.*,e.role,e.ts,e.source,c.kind,c.dup,{LATEST_FEEDBACK},bm25(passages) AS rank FROM passages p JOIN events e ON e.id=p.event JOIN evidence_catalog c ON c.event=e.id LEFT JOIN labels l ON l.dup=c.dup AND l.version=? WHERE passages MATCH ? AND p.chat=? AND c.kind NOT IN ('generated','snapshot_summary','transcript_replay','retrieval_echo','retrieval_call','scaffolding','review_metadata') ORDER BY (e.role='tool_call'),(? AND e.role NOT IN ('user','assistant')),(coalesce(json_extract(l.vector,'$.routine'),0)>0.75 AND max(coalesce(json_extract(l.vector,'$.durable'),0),coalesce(json_extract(l.vector,'$.decision'),0),coalesce(json_extract(l.vector,'$.user_constraint'),0))<0.25),rank,e.id,p.start",
+            (LABEL_VERSION, match, chat, decision_question(query)),
+        ).fetchall()
+        # Release the read snapshot before lazy tool-output cache writes. A hook
+        # or proxy can commit meanwhile; upgrading that old snapshot would fail
+        # immediately with SQLITE_BUSY_SNAPSHOT, regardless of busy_timeout.
         # Dedupe BEFORE paid ranking. Repeated words/overlapping windows from one
         # event must not crowd other source events out of the shortlist.
         selected, used, copies = [], set(), {}
@@ -327,6 +388,21 @@ class Archive:
             # Compare complete documents, not matching windows: two versions can
             # share a paragraph while disagreeing elsewhere.
             key = row["dup"]
+            if row["role"] == "tool_result":
+                full = self.event(chat, row["event"])["text"]
+                view = self.tool_output(row["event"])
+                if view != full:
+                    snippet = excerpt(view, words)
+                    if snippet is None:
+                        # The match occurred only inside a removed echo or its
+                        # transport metadata; do not spend a result slot on it.
+                        continue
+                    row.update(
+                        text=snippet,
+                        start=0,
+                        presentation="decoded tool-output excerpt; offset addresses the raw event, not displayed text",
+                    )
+                    key = ("decoded_tool_output", digest(view), row["feedback"])
             if row["role"] in {"user", "assistant"}:
                 # Presentation only: identical dated statements share one slot,
                 # with dates/pointers below. Feedback and stored identities remain
@@ -418,6 +494,8 @@ class Archive:
         }
 
     def active_notes(self, chat: str):
+        from .knowledge import current_notes
+
         rows = [
             json.loads(r[0])
             for r in self.db.execute("SELECT record FROM notes WHERE chat=?", (chat,))
@@ -426,11 +504,15 @@ class Archive:
             n for r in rows for n in r.get("supersedes", []) + r.get("retracts", [])
         }
         return sorted(
-            [
-                r
-                for r in rows
-                if r.get("kind", "note") == "note" and r["id"] not in invalid
-            ],
+            current_notes(
+                self,
+                chat,
+                [
+                    r
+                    for r in rows
+                    if r.get("kind", "note") == "note" and r["id"] not in invalid
+                ],
+            ),
             key=lambda r: (r.get("type") == "pin", r.get("ts", "")),
             reverse=True,
         )

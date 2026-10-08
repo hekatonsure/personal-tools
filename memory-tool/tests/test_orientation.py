@@ -3,7 +3,7 @@ import subprocess
 
 from memory_tool.archive import Archive
 from memory_tool.hooks import handle
-from memory_tool.orientation import repository_root
+from memory_tool.orientation import repository_root, substantive_reply
 from memory_tool.packing import Tokens, build_packet
 
 
@@ -269,4 +269,64 @@ def test_final_outcomes_survive_progress_replies_and_snapshot_forks(tmp_path):
     assert refs[0]["related_reply"]["session"] == "complete"
     assert refs[0]["related_reply"]["excerpt"] == text
     assert refs[-1]["session"] == "probe"
+    a.close()
+
+
+def test_short_final_correction_beats_old_long_success():
+    success = {
+        "role": "assistant",
+        "phase": "final_answer",
+        "preview": "The installation and all validation checks passed. New connections now use the latest runtime.",
+    }
+    correction = {
+        "role": "assistant",
+        "phase": "final_answer",
+        "preview": "Correction: activation failed.",
+    }
+    acknowledgement = {
+        "role": "assistant",
+        "phase": "final_answer",
+        "preview": "You're welcome!",
+    }
+    assert substantive_reply([success, correction, acknowledgement]) == correction
+
+
+def test_document_handoff_keeps_preceding_finding_and_latest_source(tmp_path):
+    a = Archive(tmp_path / "archive.sqlite")
+    a.register("home", str(tmp_path))
+    add(a, "home", "old", "user", "Improve restored memory")
+    finding = "Decoded search works, but restored packets still repeat diagnostic output. The next fix belongs in packet selection."
+    outcome = a.append(
+        "home",
+        "assistant",
+        finding,
+        "native:old:outcome",
+        ts="2026-10-07T12:01:00Z",
+        raw=json.dumps({"payload": {"phase": "final_answer"}}),
+    )
+    add(a, "home", "old", "user", "Archive the findings", "2026-10-07T12:02:00Z")
+    handoff = "Updated [setup.md](/project/md_archive/setup.md) with validation and remaining work."
+    final = a.append(
+        "home",
+        "assistant",
+        handoff,
+        "native:old:handoff",
+        ts="2026-10-07T12:03:00Z",
+        raw=json.dumps({"payload": {"phase": "final_answer"}}),
+    )
+    before = a.db.execute("SELECT * FROM events").fetchall()
+    packet = build_packet(a, "home", 4000, 1000, session="new")
+    ref = next(
+        json.loads(line)
+        for line in packet.text.splitlines()
+        if line.startswith('{"project"')
+    )
+    assert ref["last_reply"]["event"] == final
+    assert ref["last_reply"]["excerpt"] == handoff
+    assert ref["preceding_reply"]["event"] == outcome
+    assert ref["preceding_reply"]["excerpt"] == finding
+    assert ref["preceding_reply"]["ts"] < ref["last_reply"]["ts"]
+    assert a.zoom("home", outcome)["text"] == finding
+    assert before == a.db.execute("SELECT * FROM events").fetchall()
+    assert packet.tokens <= 4000
     a.close()

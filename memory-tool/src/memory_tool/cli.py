@@ -35,10 +35,16 @@ def parser():
         "reset-codex",
         "serve",
         "label",
+        "index-notes",
         "proxy",
     ):
         command = commands.add_parser(name)
         command.add_argument("--chat", required=True, help="Stable logical chat ID")
+        if name == "index-notes":
+            command.add_argument(
+                "--source",
+                help="Register a Markdown directory or legacy notes JSONL inside this project; defaults to md_archive",
+            )
         if name == "proxy":
             command.add_argument(
                 "--provider", choices=["anthropic", "openai"], required=True
@@ -220,6 +226,15 @@ def main():
             )
         elif args.command == "status":
             emit(archive.stats(args.chat))
+        elif args.command == "index-notes":
+            from .knowledge import sync_markdown, note_tree
+
+            emit(
+                {
+                    **sync_markdown(archive, args.chat, args.source),
+                    "tree": note_tree(archive, args.chat),
+                }
+            )
         elif args.command == "proxy":
             from .proxy import serve_proxy
 
