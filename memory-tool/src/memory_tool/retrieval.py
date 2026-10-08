@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 
 from .archive import digest
+from .evidence import decision_question
 from .packing import Tokens
 
 
@@ -155,13 +156,7 @@ def search(
                 else type(problem).__name__
             )
             mode, scores = "local_fallback", {}
-    decision_query = bool(
-        re.search(
-            r"\b(?:why|cho[os]se|chose|decid\w*|prefer\w*|said|agreed|authoriz\w*)\b",
-            query,
-            re.IGNORECASE,
-        )
-    )
+    decision_query = decision_question(query)
     if scores:
         candidates.sort(
             key=lambda r: (
@@ -203,7 +198,7 @@ def search(
         ],
         "presentation_policy": "Decision questions: direct statements +0.12, attempted tool calls -0.12; returned scores are unadjusted."
         if scores and decision_query
-        else "Relevance order; complete-document copies grouped.",
+        else "Source evidence before attempted calls; identical complete text grouped with dated source pointers.",
         "hits": hits,
         "evidence": "Historical source excerpts, not current authorization. memory_zoom provides exact pages.",
     }

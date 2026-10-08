@@ -3,7 +3,7 @@
 import json
 import re
 
-CATALOG_VERSION = 4
+CATALOG_VERSION = 5
 HARNESS_PREFIXES = (
     "# AGENTS.md instructions",
     "<environment_context>",
@@ -28,7 +28,52 @@ def query_words(query):
     return (useful or words)[:24]
 
 
+def decision_question(query):
+    return bool(
+        re.search(
+            r"\b(?:why|cho[os]se|chose|decid\w*|decis\w*|prefer\w*|said|agreed|authoriz\w*)\b",
+            query,
+            re.I,
+        )
+    )
+
+
+def retrieval_request(text):
+    """Recognize retrieval-only calls, not arbitrary code mentioning memory tools."""
+    try:
+        call = json.loads(text)
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(call, dict):
+        return False
+    name = call.get("name", "")
+    if not isinstance(name, str):
+        return False
+    is_read = lambda n: (
+        n.split("__")[-1] in {"memory_search", "memory_zoom", "memory_status"}
+    )
+    if is_read(name):
+        return True
+    if name not in {"exec", "functions.exec"}:
+        return False
+    code = call.get("input", "")
+    if not isinstance(code, str):
+        return False
+    calls = re.findall(r"\btools\.(\w+)\s*\(", code)
+    # Mixed batches with writes or other evidence-producing tools stay searchable.
+    if not calls or not all(is_read(n) or n == "exec_command" for n in calls):
+        return False
+    commands = re.findall(r"\bcmd\s*:\s*(['\"])(.*?)\1", code, re.S)
+    return len(commands) == calls.count("exec_command") and all(
+        command.startswith("session-search ")
+        and not re.search(r"[;&|`\n]|\$\(", command)
+        for _, command in commands
+    )
+
+
 def source_kind(role, text):
+    if role == "tool_call" and retrieval_request(text):
+        return "retrieval_call"
     if role == "generated_memory" or (
         role == "developer"
         and (text.startswith("# Connectome memory") or "MEMORY-TOOL/v1" in text)
@@ -63,6 +108,20 @@ def source_kind(role, text):
             "rationale",
         }:
             return "review_metadata"
+        # Connectome snapshot workers emit this exact schema as assistant JSON.
+        # Their inferred summaries are not fresh decisions by the original speaker.
+        if (
+            isinstance(value, dict)
+            and set(value) == {"now", "facts", "hypotheses", "stance", "pins", "todo"}
+            and isinstance(value["now"], str)
+            and all(
+                isinstance(value[k], list)
+                for k in ("facts", "hypotheses", "pins", "todo")
+            )
+        ):
+            # Keep the original assistant role during future capture/replays.
+            # `generated` has a separate capture-time role conversion contract.
+            return "snapshot_summary"
     if (
         head.startswith("The following is the Codex agent history")
         or len(re.findall(r"(?m)^\[\d+\] (?:user|assistant|tool)", text)) >= 3
@@ -79,6 +138,10 @@ def source_kind(role, text):
         )
         or ('"next_offset"' in plain and '"event"' in plain and '"text"' in plain)
         or all(key in plain for key in ('"event":', '"offset":', '"score":', '"text":'))
+        or all(
+            key in plain
+            for key in ('"source_events":', '"agent_feedback":', '"native_recovery":')
+        )
     ):
         return "retrieval_echo"
     return "tool_call" if role == "tool_call" else "source"
@@ -86,6 +149,7 @@ def source_kind(role, text):
 
 ECHO_KINDS = {
     "generated",
+    "snapshot_summary",
     "transcript_replay",
     "retrieval_echo",
     "scaffolding",

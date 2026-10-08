@@ -1,8 +1,8 @@
 from __future__ import annotations
 import hashlib, json, os, sqlite3, time, uuid
 from pathlib import Path
-from .evidence import CATALOG_VERSION, query_words, source_kind
-from .selection import LABEL_VERSION, duplicate_key, freshness, image_free
+from .evidence import CATALOG_VERSION, decision_question, query_words, source_kind
+from .selection import LABEL_VERSION, duplicate_key, freshness, image_free, normalized
 
 
 FEEDBACK = ("useful", "noise", "stale", "wrong", "missing")
@@ -173,7 +173,7 @@ class Archive:
         return [
             dict(r)
             for r in self.db.execute(
-                "SELECT e.* FROM events e JOIN evidence_catalog c ON c.event=e.id WHERE chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY e.id",
+                "SELECT e.* FROM events e JOIN evidence_catalog c ON c.event=e.id WHERE chat=? AND c.kind NOT IN ('generated','snapshot_summary','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY e.id",
                 (chat,),
             )
         ]
@@ -186,7 +186,7 @@ class Archive:
                 "labels": json.loads(r["labels"]) if r["labels"] else None,
             }
             for r in self.db.execute(
-                f"SELECT id,role,ts,source,c.kind,c.dup,substr(text,1,480) AS preview,l.vector AS labels,{LATEST_FEEDBACK} FROM events e JOIN evidence_catalog c ON c.event=e.id LEFT JOIN labels l ON l.dup=c.dup AND l.version=? WHERE chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY id",
+                f"SELECT id,role,ts,source,c.kind,c.dup,substr(text,1,480) AS preview,CASE WHEN role='assistant' AND json_valid(raw) THEN coalesce(json_extract(raw,'$.payload.phase'),json_extract(raw,'$.phase'),json_extract(raw,'$.payload.channel'),json_extract(raw,'$.channel')) END AS phase,l.vector AS labels,{LATEST_FEEDBACK} FROM events e JOIN evidence_catalog c ON c.event=e.id LEFT JOIN labels l ON l.dup=c.dup AND l.version=? WHERE chat=? AND c.kind NOT IN ('generated','snapshot_summary','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY id",
                 (LABEL_VERSION, chat),
             )
         ]
@@ -312,23 +312,27 @@ class Archive:
         if not words:
             return []
         match = " OR ".join('"' + w.replace('"', '""') + '"' for w in words)
-        rows = [
-            dict(r)
-            for r in self.db.execute(
-                f"SELECT p.*,e.role,e.ts,e.source,c.kind,c.dup,{LATEST_FEEDBACK},bm25(passages) AS rank FROM passages p JOIN events e ON e.id=p.event JOIN evidence_catalog c ON c.event=e.id WHERE passages MATCH ? AND p.chat=? AND c.kind NOT IN ('generated','transcript_replay','retrieval_echo','scaffolding','review_metadata') ORDER BY rank LIMIT ?",
-                (match, chat, max(512, limit * 32)),
-            )
-        ]
+        rows = self.db.execute(
+            f"SELECT p.*,e.role,e.ts,e.source,c.kind,c.dup,{LATEST_FEEDBACK},bm25(passages) AS rank FROM passages p JOIN events e ON e.id=p.event JOIN evidence_catalog c ON c.event=e.id WHERE passages MATCH ? AND p.chat=? AND c.kind NOT IN ('generated','snapshot_summary','transcript_replay','retrieval_echo','retrieval_call','scaffolding','review_metadata') ORDER BY (e.role='tool_call'),(? AND e.role NOT IN ('user','assistant')),rank,e.id,p.start",
+            (match, chat, decision_question(query)),
+        )
         # Dedupe BEFORE paid ranking. Repeated words/overlapping windows from one
         # event must not crowd other source events out of the shortlist.
         selected, used, copies = [], set(), {}
         for row in rows:
+            row = dict(row)
             if row["event"] in used:
                 continue
             used.add(row["event"])
             # Compare complete documents, not matching windows: two versions can
             # share a paragraph while disagreeing elsewhere.
             key = row["dup"]
+            if row["role"] in {"user", "assistant"}:
+                # Presentation only: identical dated statements share one slot,
+                # with dates/pointers below. Feedback and stored identities remain
+                # independent; different verdicts must not be hidden by grouping.
+                full = self.event(chat, row["event"])["text"]
+                key = (row["role"], digest(normalized(full)), row["feedback"])
             prior = copies.get(key)
             if prior is not None:
                 prior["duplicate_count"] = prior.get("duplicate_count", 0) + 1

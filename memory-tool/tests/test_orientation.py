@@ -164,3 +164,109 @@ def test_worktree_git_files_and_nested_repos(tmp_path):
 def test_empty_git_guard_is_not_a_repository(tmp_path):
     (tmp_path / ".git").mkdir()
     assert repository_root(tmp_path) is None
+
+
+def test_startup_has_diverse_topics_and_literal_outcomes(tmp_path):
+    a = Archive(tmp_path / "archive.sqlite")
+    a.register("home", str(tmp_path))
+    add(a, "home", "spreadsheet", "user", "Review inventory spreadsheet", "2026-10-01")
+    outcome = add(
+        a,
+        "home",
+        "spreadsheet",
+        "assistant",
+        "Spreadsheet draft is ready. All 1,502 issues and audited totals are preserved; 4,017 formulas checked.",
+        "2026-10-01",
+    )
+    add(a, "home", "spreadsheet", "assistant", "You're welcome!", "2026-10-02")
+    for i in range(12):
+        add(
+            a,
+            "home",
+            f"fork{i}",
+            "user",
+            "Continue incremental summary tree",
+            f"2026-10-{i + 3:02d}",
+        )
+        add(
+            a,
+            "home",
+            f"fork{i}",
+            "assistant",
+            "Tree validation passed",
+            f"2026-10-{i + 3:02d}",
+        )
+    before = a.db.execute("SELECT * FROM events").fetchall()
+    p = build_packet(a, "home", session="new")
+    refs = [
+        json.loads(line)
+        for line in p.text.splitlines()
+        if line.startswith('{"project"')
+    ]
+    assert len(refs) == 2
+    assert refs[0]["related_sessions"] == 11
+    sheet = refs[1]
+    assert sheet["last_reply"]["event"] == outcome
+    assert "4,017 formulas" in sheet["last_reply"]["excerpt"]
+    assert a.zoom("home", outcome)["text"] == sheet["last_reply"]["excerpt"]
+    assert before == a.db.execute("SELECT * FROM events").fetchall()
+    a.close()
+
+
+def test_startup_does_not_merge_truncated_topics_or_project_scopes(tmp_path):
+    a = Archive(tmp_path / "archive.sqlite")
+    a.register("home", str(tmp_path))
+    a.register("other", str(tmp_path / "other"))
+    prefix = "shared topic " * 50
+    add(a, "home", "one", "user", prefix + "different ending one")
+    add(a, "home", "two", "user", prefix + "different ending two")
+    add(a, "other", "three", "user", prefix + "different ending two")
+    p = build_packet(a, "home", session="new")
+    assert len(p.selection["startup"]["recent_session_references"]) == 3
+    a.close()
+
+
+def test_final_outcomes_survive_progress_replies_and_snapshot_forks(tmp_path):
+    a = Archive(tmp_path / "archive.sqlite")
+    a.register("home", str(tmp_path))
+    add(a, "home", "complete", "user", "Implement summary tree", "2026-10-01")
+    add(a, "home", "complete", "user", "Now test restart recovery", "2026-10-02")
+    text = "Summary tree validation passed. All omitted receipts were recovered after restarting the proxy."
+    final = a.append(
+        "home",
+        "assistant",
+        text,
+        "native:complete:final",
+        ts="2026-10-02",
+        raw=json.dumps({"payload": {"phase": "final_answer"}}),
+    )
+    add(
+        a,
+        "home",
+        "complete",
+        "assistant",
+        "The next investigation covers the runtime's latency, and I am reading the existing benchmark outputs.",
+        "2026-10-03",
+    )
+    add(a, "home", "fork", "user", "Implement summary tree", "2026-10-04")
+    add(a, "home", "fork", "assistant", "Tree implementation underway", "2026-10-04")
+    add(
+        a,
+        "home",
+        "probe",
+        "user",
+        "This is a disposable installation smoke test.",
+        "2026-10-05",
+    )
+    p = build_packet(a, "home", session="new")
+    refs = [
+        json.loads(line)
+        for line in p.text.splitlines()
+        if line.startswith('{"project"')
+    ]
+    assert refs[0]["session"] == "fork"
+    assert refs[0]["related_reply"]["event"] == final
+    assert refs[0]["related_reply"]["session"] == "complete"
+    assert refs[0]["related_reply"]["excerpt"] == text
+    assert refs[-1]["session"] == "probe"
+    a.close()

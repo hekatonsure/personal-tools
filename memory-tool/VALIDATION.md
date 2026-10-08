@@ -1,5 +1,51 @@
 # Validation
 
+## Search repetition and startup outcomes: 2026-10-07
+
+Checkpointed all preceding memory work as `450f12f` before editing. Baseline:
+**220 tests passed** with local socket access. Policy 6 / catalog 5 groups identical
+dated text only in search presentation, excludes retrieval-only requests from
+search (while preserving the original event stream), recognizes Connectome's
+exact snapshot JSON schema and status echoes, and prefers direct statements for
+decision questions. Matching windows are streamed before applying the distinct
+candidate limit, removing the duplicate-window starvation seen in this chat.
+
+Startup now includes literal replies outside the current repo, groups repeated
+opening requests within their original project, prefers recorded final answers,
+and can include a separately attributed reply from a fuller related conversation.
+Disposable installation probes fall behind ordinary work. General orientation
+may use 2.4k tokens within the existing 4k startup/whole-packet budgets. Dates,
+feedback, original scopes and exact zoom references are preserved.
+
+**229 tests passed**, including nine new regressions covering 850 repeated
+dated prompts, changed document tails, independent feedback, retrieval echoes and
+mixed action batches, snapshot-schema upgrades, local decision ranking, topic
+diversity, complete topic identity, final replies, fuller conversations and
+idempotent native transcript replay after snapshot reclassification. The same
+suite passes against the installed candidate package.
+Ruff passes for `src tests scripts`; repository-wide Ruff still reports 30
+pre-existing formatting violations in `evaluations/summary_models.py`.
+
+Real-archive replay used independent SQLite backups and both the previous runtime
+and the packaged candidate. The tree query previously returned search-call echoes
+and repeated continuation prompts; it now returns the original implementation
+and validation statements. Fifty-two tree-topic sessions occupy one startup slot,
+leaving room for hook and spreadsheet context. The observed startup grew from
+862 to 1,628 tokens. Events, provenance, notes and feedback compare byte for byte
+before and after derived-catalog rebuilding. Replay took about one second per
+runtime; this is a smoke check, not a latency benchmark or semantic-quality eval.
+
+Deployment evidence, wheel, replay script/results and the previous bridge are in
+`~/.local/share/memory-tool/deployments/20261007-retrieval/`. The separate runtime
+uses the existing launcher bridge for new invocations. Existing MCP processes
+retain their loaded version until reconnect. No proxy restart, hook re-enable,
+trust/config edits or source-event migration are required.
+
+Known limits: reply selection and topic grouping are local heuristics. They do
+not infer which conflicting statement is true. Search work scales with matching
+archive content; arbitrary generated prose and mixed transcript/log outputs may
+still appear. The unrelated session-search network stall was not changed here.
+
 ## Repository-first startup recall: 2026-10-07
 
 Diagnosed an empty live startup packet: 584 source events existed in other home

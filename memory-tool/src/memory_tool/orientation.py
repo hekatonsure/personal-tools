@@ -2,12 +2,42 @@
 
 import json
 import os
+import re
 import subprocess
 from collections import defaultdict
 from pathlib import Path
 
-from .archive import canonical
-from .selection import LOW_VALUE, freshness, importance, session_of, timestamp, verdict
+from .archive import canonical, digest
+from .selection import (
+    LOW_VALUE,
+    freshness,
+    importance,
+    normalized,
+    session_of,
+    timestamp,
+    verdict,
+)
+
+
+def substantive_reply(rows):
+    """Prefer a recent informative reply over an acknowledgement or opening plan.
+
+    This is a presentation heuristic, not an assertion that work is complete.
+    Retain a short reply as fallback so concise outcomes still have a source.
+    """
+    replies = [r for r in rows if r["role"] == "assistant"]
+    informative = [
+        r
+        for r in replies
+        if len(r["preview"].strip()) >= 80
+        and not re.match(
+            r"(?:I[’']ll\b|I will\b|I[’']m (?:using|going to)\b|Let me\b)",
+            r["preview"].strip(),
+            re.I,
+        )
+    ]
+    finals = [r for r in informative if r.get("phase") in {"final", "final_answer"}]
+    return (finals or informative or replies or [None])[-1]
 
 
 def repository_root(project):
@@ -64,9 +94,9 @@ def startup_orientation(archive, chat, session, counter, budget, now=None):
             users = [r for r in rows if r["role"] == "user"]
             if not users:
                 continue
-            assistants = [r for r in rows if r["role"] == "assistant"]
             topic = users[0]
             latest = rows[-1]
+            reply = substantive_reply(rows)
             reference = {
                 "project": scope,
                 "session": sid,
@@ -74,9 +104,29 @@ def startup_orientation(archive, chat, session, counter, budget, now=None):
                 "topic_event": topic["id"],
                 "topic_excerpt": topic["preview"][:200],
                 "latest_event": latest["id"],
+                # Full topic identity prevents shared truncated prefixes from
+                # merging unrelated sessions. It is not included in the packet.
+                "_topic": digest(
+                    normalized(archive.event(ids[0], topic["id"])["text"])
+                ),
+                "_disposable": bool(
+                    re.search(
+                        r"\bdisposable (?:installation )?smoke test\b",
+                        topic["preview"],
+                        re.I,
+                    )
+                ),
+                "_turns": len({normalized(r["preview"]) for r in users}),
             }
+            if reply:
+                reference["last_reply"] = {
+                    "event": reply["id"],
+                    "ts": reply["ts"],
+                    "freshness": freshness(reply, now),
+                    "excerpt": reply["preview"],
+                }
             if same_repo:
-                chosen = {r["id"]: r for r in [topic, users[-1], *assistants[-1:]]}
+                chosen = {r["id"]: r for r in [topic, users[-1]]}
                 reference["evidence"] = [
                     {
                         "event": r["id"],
@@ -98,7 +148,31 @@ def startup_orientation(archive, chat, session, counter, budget, now=None):
 
     def section(title, rows, limit, allowance):
         text, selected = "", []
-        for row in newest(rows):
+        groups = {}
+        # Explicit disposable connection probes are fallback orientation only.
+        # Ordinary conversations about testing remain ordinary history.
+        for row in sorted(newest(rows), key=lambda r: r["_disposable"]):
+            key = (row["project"], row["_topic"])
+            groups.setdefault(key, []).append(row)
+        for members in groups.values():
+            latest = members[0]
+            row = {k: v for k, v in latest.items() if not k.startswith("_")}
+            if len(members) > 1:
+                row["related_sessions"] = len(members) - 1
+                # Fork/snapshot sessions often contain only the opening request.
+                # Carry a reply from the fuller conversation too, with its own
+                # date and session. Never claim it supersedes the newest reply.
+                fuller = max(members, key=lambda r: r["_turns"])
+                if (
+                    fuller["_turns"] > latest["_turns"]
+                    and fuller.get("last_reply")
+                    and fuller["last_reply"]["excerpt"]
+                    != latest.get("last_reply", {}).get("excerpt")
+                ):
+                    row["related_reply"] = {
+                        "session": fuller["session"],
+                        **fuller["last_reply"],
+                    }
             line = json.dumps(row, ensure_ascii=False) + "\n"
             candidate = (text or title) + line
             if counter.count(candidate) <= allowance:
@@ -127,7 +201,7 @@ def startup_orientation(archive, chat, session, counter, budget, now=None):
         "\nRECENT SESSION REFERENCES (other locations)\n",
         general,
         5,
-        min(1000, available - counter.count(repo_text)),
+        min(2400, available - counter.count(repo_text)),
     )
     text = header + repo_text + recent_text if repo_text or recent_text else ""
     return text, {

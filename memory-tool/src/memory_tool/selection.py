@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from .evidence import query_words
 
 
-POLICY_VERSION = 5
+POLICY_VERSION = 6
 STATUS_TTL = 6 * 3600
 LABEL_VERSION = 1
 # Jev label probabilities that make an older event worth carrying. Below the

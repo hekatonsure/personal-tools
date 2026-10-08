@@ -145,12 +145,18 @@ bounded to 64 MiB per invocation; incomplete capture is explicitly reported.
 Existing Connectome import can bootstrap older history. Errors preserve the native
 session and report that recovery failed rather than claiming success.
 
-Empty conversations receive a bounded startup orientation (selection policy 5).
+Empty conversations receive a bounded startup orientation (selection policy 6).
 Git identifies the starting directory's repository, including nested repositories
 and linked worktrees. Up to three recent sessions from that repo appear first,
-with dated task/outcome excerpts; up to five recent sessions from other locations
-follow as topic references. The orientation uses at most 4k tokens within the
-existing packet budget, including at most 1k for general references. Noise/stale/
+with dated task/outcome excerpts; up to five recent topics from other locations
+follow with literal reply excerpts too. Identical full opening requests within
+one project share a slot, with a related-session count. Final-answer metadata is
+preferred over progress updates; otherwise a recent informative reply is used.
+A fuller related conversation may supply an additional dated reply, without
+claiming it overrides the newest session. Explicit disposable smoke tests are
+fallback entries. These are presentation heuristics, not proof of completion.
+The orientation uses at most 4k tokens within the existing packet budget,
+including at most 2.4k for general references. Noise/stale/
 wrong feedback, expired status and known low-value records remain excluded.
 Each reference carries its original project and event IDs for search/zoom.
 Archive bindings are not migrated: sessions started from a home directory remain
@@ -454,17 +460,24 @@ including superseded/retracted records. These are evidence rules, not permission
 
 ## Retrieval and storage
 
-Approval-review transcript copies and replayed search/zoom results are excluded
+Approval-review transcript copies, recognized snapshot-worker summaries, and
+replayed search/zoom/status results are excluded
 from candidate ranking and packed history. They remain immutable and accessible by
 event ID. Derived metadata is rebuilt on upgrade; no source records are deleted.
 Repeated complete tool documents are grouped before paid ranking after removing
 known transport envelopes. Indentation, literal backslashes, changed document
-versions, exit statuses, errors, other payload fields and separately dated human
-statements stay distinct. Hits include a
-duplicate count and bounded source pointers. Lexical search ignores common
-question words and overfetches a bounded pool (768 windows for the usual
-24-candidate shortlist) before selecting distinct events;
-this finite shortlist can still miss relevant evidence.
+versions, exit statuses, errors and other payload fields stay distinct. Identical
+complete user/assistant text on different dates shares a search slot, with a
+duplicate count and bounded dated source pointers. Original dates, feedback
+identities, and restoration semantics stay independent; different feedback
+verdicts prevent search grouping. Retrieval-only calls are omitted from search
+but remain in the event stream and accessible by zoom. Mixed action batches
+remain searchable. Ordinary attempted calls rank after source evidence; decision
+questions also prefer direct user/assistant statements before tool output.
+Lexical search ignores common question words and streams matching windows before
+the 24-candidate limit, so repeated prompts cannot exhaust a window shortlist.
+Work scales with matching archive content; this finite result shortlist can still
+miss relevant evidence. No model calls are needed for these local policies.
 
 Older history uses cached binary-tree literal excerpts, not generative summaries.
 Each node keeps 4 excerpts and widens to 8, 16 or 32 while the whole tree still fits
