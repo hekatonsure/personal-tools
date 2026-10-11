@@ -1,5 +1,42 @@
 # Validation
 
+## Windows upgrade — 2026-10-11
+
+Updated the native Codex installation from 0.3.0 to the 0.4.0 main snapshot
+`2e2693f`, with the Windows test and credential-redaction repairs recorded here.
+The archive was backed up with SQLite's backup API and passed `quick_check` before
+new derived indexes were initialized. A separate versioned runtime keeps active
+Windows executables intact. Existing checkpoint/restore definitions and their
+trust records are preserved; MCP points directly to the new runtime.
+
+Six upstream test failures came from Windows path casing/JSON escaping, CRLF
+source offsets, POSIX permission assumptions, missing symlink privilege, and a
+credential fixture that did not isolate the saved Windows user environment.
+Tests now preserve those platform distinctions. Only the external-symlink test
+skips when Windows reports missing privilege; size/scope isolation still runs.
+Bare TypeSafe-style API keys in assertion output are also redacted before ranking
+or labeling, with a synthetic regression test. No real credential is a fixture.
+
+Validation: the repaired focused suite passed **39 tests, 1 skipped**. The full
+suite passed **264 tests, 1 skipped**, with one experimental-proxy loopback test
+failing transiently with Windows error 10053 while rejecting chunked input; that
+single test passed on immediate retry. This is not a claim of a clean single
+full-suite run. Ruff on `src`, `tests`, `scripts` and `git diff --check` passed.
+The unrelated summary-model evaluation runner retains 30 upstream E701/E702 lint
+findings and was not reformatted.
+
+A fresh native Codex MCP connection reported **0.4.0 / selection policy 9**, exposed
+all six tools, found an original user preference and recovered its exact text by
+zoom. This check used local ranking and no model calls. Separately, actual native
+compaction restored an unseen archive-only marker, without manual injection.
+
+The existing two memory recovery hooks remain trusted. The new **Stop** hook is
+installed but awaits normal Codex `/hooks` review; automatic end-of-turn capture
+and background labeling through that hook remain pending. A desktop refresh is
+needed to replace already loaded MCP code. The native 160k compaction / 200k
+context targets and existing Connectome installation are retained. This Windows
+upgrade does not activate the experimental HTTP proxy or install Claude hooks.
+
 ## Activated — 2026-10-08: task scope and ranked-only search
 
 Selection policy 9 / label policy 4 adds Jev `general_preference`: a standing

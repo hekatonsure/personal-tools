@@ -1,8 +1,9 @@
 import json
+import os
 
 import pytest
 
-from memory_tool.archive import Archive
+from memory_tool.archive import Archive, canonical
 from memory_tool.knowledge import label_key, note_tree, save_note, sync_markdown
 from memory_tool.labels import label_events
 from memory_tool.mcp import call
@@ -40,10 +41,10 @@ def test_markdown_revision_search_zoom_and_old_tree_survive(archive, tmp_path):
     source = json.loads(archive.zoom("main", hit["event"])["text"])
     assert (
         source["text"]
-        == path.read_text()[source["source_offset"] :][: len(source["text"])]
+        == path.read_bytes().decode("utf-8")[source["source_offset"] :][: len(source["text"])]
     )
     assert source["source_line"] == 1
-    assert hit["source"]["document"] == str(path)
+    assert canonical(hit["source"]["document"]) == canonical(str(path))
     assert sync_markdown(archive, "main")["new_notes"] == 0
     path.write_text("# Reason\nUse a dedicated writer queue.\n")
     sync_markdown(archive, "main")
@@ -126,17 +127,31 @@ def test_note_feedback_and_status_expiry(archive):
     assert archive.zoom("main", old["event"])
 
 
-def test_import_limits_symlinks_and_source_isolation(archive, tmp_path):
+def test_import_limits_and_source_isolation(archive, tmp_path):
     path = document(tmp_path, "# Durable\nUse WAL.\n")
     (path.parent / "large.md").write_text("a" * (256 * 1024 + 1))
     outside = tmp_path.parent / (tmp_path.name + "-outside")
     outside.mkdir()
     (outside / "secret.md").write_text("outside marker")
-    (path.parent / "link.md").symlink_to(outside / "secret.md")
     with pytest.raises(ValueError, match="inside"):
         sync_markdown(archive, "main", outside)
     result = sync_markdown(archive, "main")
-    assert result["skipped"] == 2
+    assert result["skipped"] == 1
+    assert len(archive.active_notes("main")) == 1
+    assert not search(archive, "main", "outside marker")["hits"]
+
+
+def test_import_skips_external_symlink(archive, tmp_path):
+    path = document(tmp_path, "# Durable\nUse WAL.\n")
+    outside = tmp_path.parent / (tmp_path.name + "-secret.md")
+    outside.write_text("outside marker")
+    try:
+        (path.parent / "link.md").symlink_to(outside)
+    except OSError as error:
+        if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is unavailable")
+        raise
+    assert sync_markdown(archive, "main")["skipped"] == 1
     assert len(archive.active_notes("main")) == 1
     assert not search(archive, "main", "outside marker")["hits"]
 
@@ -289,6 +304,13 @@ def test_jev_labels_promote_lasting_notes_not_routine_plans(archive):
 
 def test_credential_fallback_accepts_only_direct_typesafe(tmp_path, monkeypatch):
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    if os.name == "nt":
+        import winreg
+
+        def missing_user_key(*args):
+            raise FileNotFoundError("Fixture has no saved Windows credential")
+
+        monkeypatch.setattr(winreg, "QueryValueEx", missing_user_key)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     directory = tmp_path / "jevgrep"
     directory.mkdir()

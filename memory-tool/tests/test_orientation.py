@@ -1,7 +1,7 @@
 import json
 import subprocess
 
-from memory_tool.archive import Archive
+from memory_tool.archive import Archive, canonical
 from memory_tool.hooks import handle
 from memory_tool.orientation import repository_root, substantive_reply
 from memory_tool.packing import Tokens, build_packet
@@ -41,13 +41,13 @@ def test_repo_first_then_retrievable_general_references(tmp_path):
     assert text.index("REPOSITORY HISTORY") < text.index("RECENT SESSION REFERENCES")
     assert "Watchdog regression passed" in text and "Spreadsheet audit" in text
     assert "UNRELATED_RAW_LOG" not in text
-    assert f'"project": "{repo}"' in text
+    assert f'"project": {json.dumps(canonical(str(repo)))}' in text
     assert f'"topic_event": {topic}' in text
     assert f'"latest_event": {outcome}' in text
     assert a.zoom("elsewhere", remote)["text"] == "Spreadsheet audit"
     assert Tokens().count(text) <= 4000
     assert before == a.db.execute("SELECT * FROM events").fetchall()
-    assert a.project("subdir") == str(subdir)
+    assert a.project("subdir") == canonical(str(subdir))
     a.close()
 
 
@@ -155,10 +155,10 @@ def test_worktree_git_files_and_nested_repos(tmp_path):
         check=True,
     )
     (worktree / "src").mkdir()
-    assert repository_root(worktree / "src") == str(worktree)
+    assert repository_root(worktree / "src") == canonical(str(worktree))
     nested = tmp_path / "nested"
     subprocess.run(["git", "init", "-q", str(nested)], check=True)
-    assert repository_root(nested) == str(nested)
+    assert repository_root(nested) == canonical(str(nested))
 
 
 def test_empty_git_guard_is_not_a_repository(tmp_path):

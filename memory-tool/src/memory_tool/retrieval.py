@@ -19,7 +19,7 @@ def redact(text):
     patterns = [
         r"<private>[\s\S]*?</private>",
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
-        r"\b(?:sk-(?:ant-|proj-)?[\w-]{20,}|gh[pousr]_\w{30,}|github_pat_\w{30,}|jv_live_\w{16,}|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,})",
+        r"\b(?:sk-(?:ant-|proj-)?[\w-]{20,}|gh[pousr]_\w{30,}|github_pat_\w{30,}|jv_live_\w{16,}|apikey_[\w-]{20,}|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,})",
         r"\bbearer\s+[\w.~+/=-]{16,}",
     ]
     for pattern in patterns:

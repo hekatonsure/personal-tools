@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shlex
 
@@ -76,7 +77,8 @@ def test_install_preserves_settings_and_servers_and_is_idempotent(tmp_path):
         assert path.read_bytes() == installed[path]
         backups = list(tmp_path.glob(path.name + ".before-memory-tool-*"))
         assert len(backups) == 1 and backups[0].read_bytes() == original[path]
-        assert path.stat().st_mode & 0o777 == 0o600
+        if os.name != "nt":  # Windows permissions are ACLs, not POSIX mode bits.
+            assert path.stat().st_mode & 0o777 == 0o600
 
 
 def test_dry_run_does_not_write_or_echo_unrelated_configuration(tmp_path):

@@ -2,7 +2,7 @@ import json
 
 from memory_tool.archive import Archive
 from memory_tool.packing import build_packet
-from memory_tool.retrieval import search
+from memory_tool.retrieval import redact, search
 
 
 def test_replayed_reviews_and_search_results_do_not_displace_original(tmp_path):
@@ -331,3 +331,10 @@ def test_snapshot_reclassification_does_not_change_native_capture_identity(tmp_p
     assert a.zoom("main", original)["text"] == text
     assert not search(a, "main", "gearbox validation")["hits"]
     a.close()
+
+
+def test_redacts_bare_typesafe_keys_in_assertion_output():
+    key = "apikey_" + "a" * 40 + "_" + "b" * 64
+    text = f"AssertionError: assert {key!r} is None"
+    assert redact(text) == "AssertionError: assert '[REDACTED]' is None"
+    assert key not in redact(json.dumps({"output": text}))
