@@ -377,7 +377,7 @@ def note_candidates(archive, chat, query, limit=8):
     return result[:limit]
 
 
-def note_tree(archive, chat, notes=None):
+def note_tree(archive, chat, notes=None, now=None):
     """Persistent balanced tree; old roots remain zoomable after document edits."""
     notes = archive.active_notes(chat) if notes is None else notes
     if not notes:
@@ -386,7 +386,15 @@ def note_tree(archive, chat, notes=None):
         notes, key=lambda n: (n.get("document", ""), n.get("source_offset", 0), n["id"])
     )
 
-    def build(items):
+    def persist(record):
+        identity = "knowledge-" + digest(json.dumps(record, sort_keys=True))
+        archive.db.execute(
+            "INSERT OR IGNORE INTO knowledge_nodes VALUES(?,?,?)",
+            (chat, identity, json.dumps(record)),
+        )
+        return "tree:" + identity
+
+    def build(items, label):
         if len(items) == 1:
             n = items[0]
             record = {
@@ -395,30 +403,50 @@ def note_tree(archive, chat, notes=None):
                 "count": 1,
                 "source": n.get("document"),
                 "children": [],
+                "label": label,
             }
         else:
             mid = len(items) // 2
-            children = [build(items[:mid]), build(items[mid:])]
-            # Promote useful samples instead of chronology's first/last messages.
-            samples = sorted(
+            children = [build(items[:mid], label), build(items[mid:], label)]
+            # Prefer useful, distinct samples; repeated wording must not consume
+            # every preview slot and hide an unrelated fact from tree traversal.
+            from .navigation import words
+
+            pending = sorted(
                 items,
                 key=lambda n: importance(n) if importance(n) is not None else 0.5,
                 reverse=True,
-            )[:8]
+            )
+            samples, covered = [], set()
+            while pending and len(samples) < 3:
+                chosen = max(
+                    pending,
+                    key=lambda n: len(set(words(n["text"])) - covered)
+                    / max(1, len(set(words(n["text"])))),
+                )
+                samples.append(chosen)
+                covered.update(words(chosen["text"]))
+                pending.remove(chosen)
             record = {
-                "text": " | ".join(n["text"][:160] for n in samples),
+                "text": " | ".join(n["text"][:120] for n in samples),
                 "count": len(items),
                 "children": children,
+                "label": label,
             }
-        identity = "knowledge-" + digest(json.dumps(record, sort_keys=True))
-        archive.db.execute(
-            "INSERT OR IGNORE INTO knowledge_nodes VALUES(?,?,?)",
-            (chat, identity, json.dumps(record)),
-        )
-        return "tree:" + identity
+        return persist(record)
 
     with archive.db:
-        return build(notes)
+        from .navigation import note_groups
+
+        groups = note_groups(notes, now)
+        return persist(
+            {
+                "label": "All project notes",
+                "text": "Topic labels are local navigation hints, not verified summaries.",
+                "count": len(notes),
+                "children": [build(items, label) for label, items in groups],
+            }
+        )
 
 
 def tree_zoom(archive, chat, identity):
@@ -436,7 +464,14 @@ def tree_zoom(archive, chat, identity):
                 (chat, ref[5:]),
             ).fetchone()[0]
         )
-        children.append({"event": ref, "count": child["count"], "text": child["text"]})
+        children.append(
+            {
+                "event": ref,
+                "count": child["count"],
+                "text": child["text"],
+                "label": child.get("label", "Notes"),
+            }
+        )
     return json.dumps(
         {
             "evidence": "Historical note tree; excerpts may omit facts. Zoom the note for exact evidence.",

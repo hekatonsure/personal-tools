@@ -233,7 +233,7 @@ def build_packet(
     # notes so an apparently clear excerpt cannot hide an unresolved contradiction.
     note_lines = []
     note_allowance = min(
-        budget // 3, max(0, budget - recent_budget - counter.count(header) - 150)
+        1800, budget // 3, max(0, budget - recent_budget - counter.count(header) - 150)
     )
     if unfocused_startup:
         note_allowance = min(note_allowance, 1200)
@@ -243,19 +243,10 @@ def build_packet(
             note_lines.append(line)
     chosen_notes = 0
     # Selection limits what is injected, not what the navigation tree can reach.
-    note_root = note_tree(archive, chat, all_notes)
-    if note_root:
-        note_lines.append(
-            json.dumps(
-                {
-                    "note_tree": note_root,
-                    "notes": len(all_notes),
-                    "evidence": "Historical project notes; zoom follows branches to exact note records.",
-                }
-            )
-            + "\n"
-        )
+    note_root = note_tree(archive, chat, all_notes, now)
     for note in notes:
+        if chosen_notes >= 6:
+            break
         line = (
             json.dumps(
                 {
@@ -275,7 +266,7 @@ def build_packet(
                     },
                     "event": "note:" + note["id"],
                     "presentation": "literal note excerpt; zoom for full record and provenance",
-                    "text": note["text"][:1200],
+                    "text": note["text"][:800],
                 },
                 ensure_ascii=False,
             )
@@ -363,6 +354,7 @@ def build_packet(
             if relevance(r["preview"], terms) or r["id"] in reserve
         ],
         key=lambda r: (
+            verdict(r) == "useful",
             r["role"] in {"user", "assistant"},
             relevance(r["preview"], terms),
             importance(r) or 0,
@@ -399,7 +391,28 @@ def build_packet(
         "expired_status_events": expired,
     }
     summary = f"Selection: {json.dumps(selection, ensure_ascii=False)}\n"
-    base = header + summary + "\nSELECTED CURATED EVIDENCE\n" + notes_text
+    from .navigation import render_index
+
+    navigation = render_index(
+        archive,
+        chat,
+        all_notes,
+        note_root,
+        events[:cut],
+        session,
+        counter,
+        min(
+            1800,
+            max(
+                0,
+                budget
+                - counter.count(header + summary + recent_text + notes_text)
+                - 200,
+            ),
+        ),
+        terms,
+    )
+    base = header + navigation + summary + "\nSELECTED CURATED EVIDENCE\n" + notes_text
     suffix = "\nRECENT SOURCE EVENTS\n" + recent_text
     # SessionStart normally precedes the first human prompt. Keep established
     # conversations scoped, but orient a new one by repo before other locations.
@@ -413,33 +426,31 @@ def build_packet(
         )
         selection["startup"] = startup
         summary = f"Selection: {json.dumps(selection, ensure_ascii=False)}\n"
-        base = header + summary + "\nSELECTED CURATED EVIDENCE\n" + notes_text
+        base = (
+            header + navigation + summary + "\nSELECTED CURATED EVIDENCE\n" + notes_text
+        )
         base += orientation
     remaining = budget - counter.count(base + suffix + "\nOLDER HISTORY\n") - 40
     # At very small custom budgets prioritize conversation over optional metadata.
     if remaining < 0:
         base = header + "\nSELECTED CURATED EVIDENCE\n"
         remaining = budget - counter.count(base + suffix + "\nOLDER HISTORY\n") - 40
-    # The tree keeps at least half when it needs it; focused events get the rest.
-    narrow = tree_blocks(archive, chat, older_events, 4)
+    # The navigable index retains omitted evidence. Spare capacity is not a
+    # reason to re-inject old tool logs or progressively widen literal excerpts.
     focused_text, shown = "", set()
-    focused_allowance = remaining - min(
-        counter.count(render_tree(narrow, set(), now)), remaining // 2
-    )
+    focused_allowance = min(1800, max(0, remaining))
     for event, line in focused_lines:
+        if len(shown) >= 6:
+            break
         if counter.count(focused_text + line) <= focused_allowance:
             focused_text += line
             shown.add(event)
-    room = max(0, remaining - counter.count(focused_text))
-    # Fill the budget: widen every tree node while the whole tree still fits.
-    tree_text = render_tree(narrow, shown, now)
-    for keep in (8, 16, 32):
-        wider = render_tree(tree_blocks(archive, chat, older_events, keep), shown, now)
-        if counter.count(wider) > room:
-            break
-        tree_text = wider
-    tree_text = counter.fit(tree_text, room)
-    text = base + "\nOLDER HISTORY\n" + tree_text + focused_text + suffix
+    text = (
+        base
+        + "\nOLDER HISTORY — selected evidence; use the index for the rest\n"
+        + focused_text
+        + suffix
+    )
     if counter.count(text) > budget:
         raise ValueError("Memory metadata and recent content exceed packet budget")
     return Packet(

@@ -115,7 +115,7 @@ def test_long_history_tree_and_restart(archive):
         )
     first = build_packet(archive, "main", budget=1500, recent_budget=500)
     assert first.tokens <= 1500
-    assert "literal tree excerpts" in first.text
+    assert "MEMORY INDEX" in first.text and "tree:" in first.text
     reopened = Archive(archive.path)
     assert (
         build_packet(reopened, "main", budget=1500, recent_budget=500).sha == first.sha

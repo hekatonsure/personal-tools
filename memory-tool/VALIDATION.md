@@ -1,5 +1,40 @@
 # Validation
 
+## Native memory index and Connectome retirement — 2026-10-11
+
+Version 0.4.1 / selection policy 10 adds a visible topic index of notes and
+chronological, persistent zoom branches for native Codex history. This path uses
+local literal previews, not generated semantic summaries. Exact records remain
+available behind the branches, including omitted operational records.
+
+A matched local SQLite snapshot produced 19,557 tokens with policy 9 versus
+11,427 with policy 10 (41.6% fewer); both retained 7,680 recent-history tokens.
+This is one selected real-history comparison, not an independent recall study.
+The packet no longer fills spare budget with arbitrary old excerpts. Curated
+notes and focused older evidence each have a 1,800-token cap and six-record cap.
+Explicit useful feedback survives the new focused-evidence ranking.
+
+The full regression run had 269 passes, one skip, and one branch-preview failure:
+repetitive notes hid a distinct fact. Diverse preview sampling repaired it;
+all 16 knowledge/navigation checks then passed, with one credential-gated skip.
+Ruff passed across source, tests and scripts. Navigation tests cover exact-source
+reachability, retained old roots, project/chat isolation, compact packets at large
+budgets, current decisions, and idempotent Connectome retirement with backups.
+
+Topic facets and excerpts are navigation hints and may omit or misclassify facts.
+Salience and bounded tree search can still miss relevant evidence. Native Codex
+continues to manage its working context; this is not a replacement 64k harness
+or a guarantee of lifelong recall. Retirement preserves Connectome archives and
+the remaining hook definitions and saved trust records; deployment receipts stay local.
+The live Codex `hooks/list` reported all three remaining hooks as `modified` after
+the file changed. Native recovery validation waits for renewed user review in
+`/hooks`; unchanged command definitions alone do not preserve trusted status.
+All 25 installed Python source files matched the reviewed repository byte-for-byte.
+A fresh native MCP process reported version 0.4.1 / policy 10, opened the new note
+tree and recovered the exact earlier cache/context preference via event 1271.
+The regenerated live preview contained 17 zoomable index references, 12,050 total
+tokens and 7,954 recent tokens. It is a preview, not proof of automatic delivery.
+
 ## Windows upgrade — 2026-10-11
 
 Updated the native Codex installation from 0.3.0 to the 0.4.0 main snapshot

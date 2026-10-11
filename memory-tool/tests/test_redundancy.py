@@ -218,7 +218,7 @@ def test_feedback_validation():
         a.add_feedback("main", "noise", "", 999)
 
 
-def test_tree_widens_to_fill_budget(tmp_path):
+def test_tree_stays_compact_when_budget_increases(tmp_path):
     a = Archive(tmp_path / "a.sqlite")
     a.register("main", str(tmp_path))
     for i in range(256):
@@ -226,7 +226,8 @@ def test_tree_widens_to_fill_budget(tmp_path):
     small = build_packet(a, "main", 2400, 300, focus="weather", now=NOW)
     large = build_packet(a, "main", 24000, 300, focus="weather", now=NOW)
     shown = lambda p: len(set(re.findall(r"distinct finding (\d+)", p.text)))
-    assert shown(large) > 2 * shown(small) and large.tokens <= 24000
+    assert shown(large) == shown(small) and large.tokens < 4000
+    assert "tree:" in large.text and "MEMORY INDEX" in large.text
     a.close()
 
 

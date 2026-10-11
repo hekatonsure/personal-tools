@@ -45,9 +45,9 @@ def test_unfocused_home_startup_uses_general_preferences_not_task_pins(tmp_path)
     assert packet.selection["unfocused_startup"]
     # All notes, even those omitted from startup, are reachable by the root.
     root = next(
-        json.loads(line)["note_tree"]
+        line.split("note_tree: ", 1)[1]
         for line in packet.text.splitlines()
-        if '"note_tree"' in line
+        if "note_tree: " in line
     )
     pending, leaves = [root], set()
     while pending:

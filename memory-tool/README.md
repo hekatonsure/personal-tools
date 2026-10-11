@@ -1,5 +1,32 @@
 # memory-tool
 
+### Native memory index (0.4.1)
+
+Native recovery starts with a readable **MEMORY INDEX**. Notes are grouped by
+explicit kind, source document, or coarse local topic hints. Older conversation
+events have chronological `tree:` branches: call `memory_zoom` with the displayed
+reference, follow children, then open the exact event or note. These branches are
+available in native Codex without the HTTP proxy. Their previews are literal,
+not model-written semantic summaries. Raw evidence is retained; index labels do
+not establish current state, permission, or complete semantic coverage.
+
+The default 24k budget is a ceiling. Native packing reserves up to 8k for recent
+history, at most six notes/1.8k tokens and six older evidence records/1.8k tokens,
+plus a bounded index. It no longer fills spare capacity with wider old logs.
+Explicit useful feedback takes priority; stale and off-topic evidence remains
+searchable and navigable. Explicit note kinds and supersession improve salience.
+
+Connectome is an optional legacy import source, not a capture dependency.
+Memory-tool's own native hooks capture public transcripts. After validating those
+hooks, use `uv run python scripts/retire_connectome.py` for a dry-run and add
+`--apply` to back up settings, remove legacy Connectome hooks, and disable its MCP
+server. Archives, remaining hook definitions, and saved trust records are preserved.
+Codex can still mark those hooks `modified` when the containing hooks file changes:
+review and trust the remaining PreCompact, SessionStart and Stop hooks in `/hooks`.
+The migration never rewrites trust records or bypasses that review.
+Restart the desktop connection to unload the old MCP server. Update any local
+agent guidance from `take_note` to `memory_note`, and use explicit project paths.
+
 Durable local memory for Codex and Claude Code. Public messages, tool calls and tool results stay
 in SQLite. A master assistant delegates file work and recovers original evidence
 through search and paged zoom. Context is reused until a reset is needed.

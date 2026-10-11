@@ -11,7 +11,7 @@ from .evidence import query_words
 from .tool_output import searchable_output
 
 
-POLICY_VERSION = 9
+POLICY_VERSION = 10
 STATUS_TTL = 6 * 3600
 LABEL_VERSION = 4
 # Jev label probabilities that make an older event worth carrying. Below the
@@ -223,7 +223,7 @@ def freshness(record, now=None):
         declared != "preference"
         and bool(
             re.search(
-                r"\b(?:currently running|still running|active (?:process|rental|pod|worker)|running(?:SSH|output| process| experiment)|in.progress|needs? (?:one |a |an |another )?(?:restart|reload)|restart (?:required|needed)|pending approval|PID\s*[:=]?\s*\d+|deadline)\b",
+                r"\b(?:currently running|still running|active\s*(?:paid\s*)?(?:process|rental|pod|worker|queue|campaign)|running(?:SSH|output| process| experiment)|in.progress|needs? (?:one |a |an |another )?(?:restart|reload)|restart (?:required|needed)|pending approval|PID\s*[:=]?\s*\d+|deadline)\b",
                 text,
                 re.I,
             )
@@ -283,7 +283,27 @@ def select_notes(notes, terms, session=None, now=None, *, unfocused_startup=Fals
         if state in {"expired", "unverified_status"}:
             omitted[state] += 1
             continue
-        score = relevance(note.get("text", ""), terms)
+        # A single generic memory/context match is too weak to restore a long
+        # research section. It remains reachable through the topic index/search.
+        specific = [
+            t
+            for t in terms
+            if t
+            not in {
+                "memory",
+                "context",
+                "codex",
+                "config",
+                "setup",
+                "local",
+                "git",
+                "latest",
+                "update",
+                "check",
+            }
+        ]
+        applicable_terms = specific or terms
+        score = relevance(note.get("text", ""), applicable_terms)
         same = bool(session and session_of(note) == session)
         preference = note.get("memory_kind") == "preference"
         # Importance is not applicability. A robot-specific hard rule can be
@@ -315,6 +335,10 @@ def select_notes(notes, terms, session=None, now=None, *, unfocused_startup=Fals
                 "freshness": state,
                 "_rank": (
                     general,
+                    note.get("memory_kind") in {"decision", "preference", "commitment"},
+                    same
+                    and (timestamp(note.get("ts")) or 0)
+                    >= (time.time() if now is None else now) - 86400,
                     score,
                     value if value is not None else 0.5,
                     same,

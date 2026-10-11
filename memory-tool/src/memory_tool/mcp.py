@@ -182,7 +182,9 @@ def call(archive, chat, name, args, jev=False):
     if name == "memory_status":
         result = archive.stats(chat)
         result["source_events"] = len(archive.event_index(chat))
-        result["version"] = "0.4.0"
+        from . import __version__
+
+        result["version"] = __version__
         result["selection_policy"] = POLICY_VERSION
         result["knowledge"] = {
             "notes": len(archive.active_notes(chat)),
