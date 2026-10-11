@@ -26,9 +26,20 @@ Salience and bounded tree search can still miss relevant evidence. Native Codex
 continues to manage its working context; this is not a replacement 64k harness
 or a guarantee of lifelong recall. Retirement preserves Connectome archives and
 the remaining hook definitions and saved trust records; deployment receipts stay local.
-The live Codex `hooks/list` reported all three remaining hooks as `modified` after
-the file changed. Native recovery validation waits for renewed user review in
-`/hooks`; unchanged command definitions alone do not preserve trusted status.
+The live Codex `hooks/list` initially reported all three remaining hooks as
+`modified` after the file changed. After the user reviewed `/hooks`, all three
+were enabled and trusted. With Connectome disabled, a disposable native Codex
+thread compacted and recovered a marker that existed only in the external archive:
+`native_compaction`, `compact_hook_prepared`, and `unseen_marker_recovered` were
+all true, with `manual_injection=false`. This verifies automatic hook delivery
+in that probe, beyond merely preparing a packet.
+
+The probe's assertions passed, but teardown exited 1 because a background label
+worker still held `labels.log` (Windows error 32). The exact disposable directory
+was removed successfully after the lock cleared; the papercut is recorded.
+This existing desktop chat still reported MCP 0.4.0 / policy 9 at verification,
+so it needs a desktop refresh to attach the installed 0.4.1 process. The fresh
+native MCP and recovery probe used the new setup.
 All 25 installed Python source files matched the reviewed repository byte-for-byte.
 A fresh native MCP process reported version 0.4.1 / policy 10, opened the new note
 tree and recovered the exact earlier cache/context preference via event 1271.
