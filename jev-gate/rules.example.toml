@@ -1,0 +1,81 @@
+# jev-gate rules — copy to ~/.config/jev-gate/rules.toml (or $JEV_GATE_RULES/rules.toml) and make it yours.
+# Hard rules run first, in severity order deny > ask > check > allow (file order within one severity).
+# check = always send to Jev, allow only if P(fine) >= JEV_GATE_CHECK_P (0.8), else ask.
+# `tool` is a regex fullmatch on the tool name (default: any); `match` is a regex search on the subject
+# (Bash command, file_path, url, or the JSON input). Calls no rule matches go to Jev.
+# Default is allow. Jev only asks when a call goes against one of `instructions` or the user's recent messages,
+# and denies when it is clearly harmful. Add an instruction when you want something caught; add a hard rule
+# when the answer must never depend on a model.
+
+instructions = [
+  "Be careful with physical motion — motors, actuators, robot arms, stages; homing, calibration or motor test scripts. Run it only when the user has authorized this run (their recent messages ask for it or confirm it, with no change in speed, distance, direction or script since); otherwise ask. Only hardware counts: restarting servers or services is not motion.",
+  "Ask before compute-heavy jobs on this machine — only these count: full builds and test suites, simulations, model inference, large data processing. Everything else is light: editing or writing files, sed, short scripts, lint, type checks, a single test file. The same jobs over ssh on a remote build host are fine.",
+  "No AI attribution in git commits, PR bodies, PR comments or issues: no Co-Authored-By trailers for an assistant, no 'Generated with' footers.",
+  "Python goes through uv: never pip, pip install, python -m pip, or bare python/python3 to run a script (uv run python is fine).",
+  "Public repos must not receive employer names, internal hostnames, customer data or other private details.",
+  "Do what the user's recent messages ask. If they said to wait, not to do something, or to only look, doing it anyway goes against them.",
+]
+
+# ---- deny ----
+[[rule]]
+decision = "deny"
+tool = "Bash"
+match = 'rm\s+-[a-zA-Z]*[rf][a-zA-Z]*\s+(-[a-zA-Z]+\s+)*(/|~|\$HOME)/?(\s|$|\*)'
+reason = "recursive delete of / or home"
+
+[[rule]]
+decision = "deny"
+tool = "Bash"
+match = 'git\s+push\b.*(\s--force\b|\s-f\b|\s\+).*\b(main|master)\b|git\s+push\b.*\b(main|master)\b.*(\s--force\b|\s-f\b)'
+reason = "force-push to main/master"
+
+[[rule]]
+decision = "deny"
+tool = "Bash"
+match = '\bmkfs\b|\bdd\b.*\bof=/dev/(sd|nvme|mmcblk)'
+reason = "writes a raw disk"
+
+# ---- ask ----
+[[rule]]
+decision = "ask"
+tool = "Bash"
+match = '^(?!\s*ssh\b).*(\bcargo\s+(build|test|nextest|bench|clippy|run)\b|\bnix\s+(build|flake\s+check)\b|nixos-rebuild)'
+reason = "compute-heavy local job — offer a remote host"
+
+[[rule]]
+decision = "ask"
+tool = "Bash|Edit|Write|MultiEdit|NotebookEdit"
+match = '\.claude/settings[\w.-]*\.json|\.claude/hooks/|\.config/jev-gate/|jev-gate/jev_gate\.py'
+reason = "changes the permission gate itself"
+
+[[rule]]
+decision = "ask"
+tool = "Bash"
+match = '\b(sudo|pkexec)\b'
+reason = "root"
+
+[[rule]]
+decision = "ask"
+tool = "Read"
+match = '/\.ssh/|/\.aws/credentials|/\.gnupg/|(^|/)\.env(\.[\w-]+)?$|/\.envrc$|credentials\.json$|\.kube/config$'
+reason = "reads a secret store"
+
+# ---- check: regex flags it, Jev decides whether the user authorized it ----
+[[rule]]
+decision = "check"
+tool = "Bash"
+match = '(python3?|uv\s+run|\bjust\b|^\s*\./)[^|;&]*(scripts/(teleop|calibration|homing)/|motor_test)'
+reason = "can move hardware — confirm hardware, motion, duration and stop condition first"
+
+# ---- allow ----
+[[rule]]
+decision = "allow"
+tool = "Read|Glob|Grep|LS|ToolSearch|TodoWrite|Task\\w*|AskUserQuestion|Skill|Agent|SendMessage|ListAgents|ScheduleWakeup|Monitor|LSP|EnterPlanMode|ExitPlanMode|WebSearch"
+reason = "read-only or harness tool"
+
+[[rule]]
+decision = "allow"
+tool = "Bash"
+# One plain read-only command: no pipes, chaining, redirects, substitution or find (find can -exec/-delete).
+match = '^\s*(ls|cat|head|tail|wc|rg|grep|jq|which|pwd|echo|file|stat|du|df|tree|git\s+(status|log|diff|show|branch|remote)|kubectl\s+(get|describe|logs)|gh\s+(pr|issue|run)\s+(view|list|diff|checks))\b[^|;&<>$`\n]*$'
+reason = "read-only command"
