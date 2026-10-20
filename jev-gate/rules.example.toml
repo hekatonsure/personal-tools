@@ -11,7 +11,7 @@ instructions = [
   "Be careful with physical motion — motors, actuators, robot arms, stages; homing, calibration or motor test scripts. Run it only when the user has authorized this run (their recent messages ask for it or confirm it, with no change in speed, distance, direction or script since); otherwise ask. Only hardware counts: restarting servers or services is not motion.",
   "Ask before compute-heavy jobs on this machine — only these count: full builds and test suites, simulations, model inference, large data processing. Everything else is light: editing or writing files, sed, short scripts, lint, type checks, a single test file. The same jobs over ssh on a remote build host are fine.",
   "No AI attribution in git commits, PR bodies, PR comments or issues: no Co-Authored-By trailers for an assistant, no 'Generated with' footers.",
-  "Python goes through uv: never pip, pip install, python -m pip, or bare python/python3 to run a script (uv run python is fine).",
+  "On this machine, Python goes through uv: never pip, pip install, python -m pip, or bare python/python3 to run a script (uv run python is fine). Python run inside a container, pod or remote host (kubectl exec, docker exec, ssh) is not covered: those environments have no uv.",
   "Public repos must not receive employer names, internal hostnames, customer data or other private details.",
   "Do what the user's recent messages ask. If they said to wait, not to do something, or to only look, doing it anyway goes against them.",
 ]
